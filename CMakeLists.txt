@@ -128,28 +128,6 @@ set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 set(CMAKE_AUTOMOC ON)
 
 # --------------------------------------------------------------------------
-#  Python 3 — Nuke embeds Python; we need the headers to call PyGILState /
-#  PyRun_SimpleString. At runtime the functions resolve from Nuke's Python.
-# --------------------------------------------------------------------------
-# Try Nuke's bundled Python first, then fall back to system Python
-set(NUKE_PYTHON_INCLUDE "${NUKE_INSTALL_DIR}/include")
-if(EXISTS "${NUKE_PYTHON_INCLUDE}/Python.h")
-    message(STATUS "Using Nuke's bundled Python headers: ${NUKE_PYTHON_INCLUDE}")
-    set(PYTHON_INCLUDE_DIR "${NUKE_PYTHON_INCLUDE}")
-    set(PYTHON_LINK_LIBS "")   # symbols resolve from Nuke at runtime
-else()
-    find_package(Python3 COMPONENTS Development REQUIRED)
-    message(STATUS "Found Python3: ${Python3_VERSION} at ${Python3_INCLUDE_DIRS}")
-    set(PYTHON_INCLUDE_DIR "${Python3_INCLUDE_DIRS}")
-    if(WIN32)
-        # On Windows we need the import lib for PyGILState etc.
-        set(PYTHON_LINK_LIBS Python3::Python)
-    else()
-        set(PYTHON_LINK_LIBS "")   # Linux/macOS resolve from Nuke
-    endif()
-endif()
-
-# --------------------------------------------------------------------------
 #  Plugin target
 # --------------------------------------------------------------------------
 add_library(VisualLayerInspector SHARED
@@ -160,13 +138,11 @@ add_library(VisualLayerInspector SHARED
 
 target_include_directories(VisualLayerInspector PRIVATE
     "${NUKE_INCLUDE_DIR}"
-    "${PYTHON_INCLUDE_DIR}"
 )
 
 target_link_libraries(VisualLayerInspector PRIVATE
     ${DDIMAGE_LIBRARY}
     ${QT_LIBS}
-    ${PYTHON_LINK_LIBS}
 )
 
 # Nuke plugins need specific defines

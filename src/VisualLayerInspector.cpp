@@ -5,15 +5,12 @@
 // clicked, it reads all layers from the input via the Tile API, renders
 // down-sampled thumbnails into QImages, and opens a Qt dialog grid.
 //
-// Viewer channel switching uses the Python C API directly (PyGILState +
-// PyRun_SimpleString) so it works reliably from Qt callbacks, unlike
-// Op::script_command which requires the Nuke script engine context.
+// Viewer channel switching dynamically resolves the Python C API from
+// whichever python3X.dll Nuke has loaded — no compile-time Python
+// dependency, works across Nuke 14 (Python 3.9) and Nuke 16 (Python 3.11).
 //
 // Created by Marten Blumen
 // ============================================================================
-
-// Python.h must come before any standard headers on Windows/MSVC
-#include <Python.h>
 
 #include "DDImage/NoIop.h"
 #include "DDImage/Iop.h"
@@ -42,6 +39,12 @@
 #include <cmath>
 #include <cstring>
 
+#ifdef _WIN32
+  #include <windows.h>
+#else
+  #include <dlfcn.h>
+#endif
+
 using namespace DD::Image;
 
 // ============================================================================
@@ -59,13 +62,63 @@ static constexpr int kThumbMaxWidth  = 240;
 static constexpr int kThumbMaxHeight = 160;
 
 // ============================================================================
-//  Python helper — run a Python command using the embedded interpreter
+//  Python helper — dynamically resolve PyGILState / PyRun_SimpleString
+//
+//  This avoids linking against any specific Python version at compile time.
+//  At runtime, Nuke will already have python3X.dll loaded, so we just grab
+//  the function pointers from it. Works across Nuke 14 (3.9) and 16 (3.11).
 // ============================================================================
+
+// Python GIL state enum — matches all Python 3.x versions
+enum PyGILState { PyGILState_LOCKED, PyGILState_UNLOCKED };
+
+using Fn_PyGILState_Ensure  = int (*)();
+using Fn_PyGILState_Release = void (*)(int);
+using Fn_PyRun_SimpleString = int (*)(const char*);
+
+static Fn_PyGILState_Ensure  s_gilEnsure  = nullptr;
+static Fn_PyGILState_Release s_gilRelease = nullptr;
+static Fn_PyRun_SimpleString s_pyRun      = nullptr;
+
+static bool resolvePython()
+{
+    // Already resolved
+    if (s_gilEnsure && s_gilRelease && s_pyRun)
+        return true;
+
+#ifdef _WIN32
+    // Try python DLLs that Nuke might have loaded (3.9 through 3.13)
+    HMODULE hPython = nullptr;
+    const char* names[] = {
+        "python313.dll", "python312.dll", "python311.dll",
+        "python310.dll", "python39.dll", "python3.dll", nullptr
+    };
+    for (int i = 0; names[i] && !hPython; ++i)
+        hPython = GetModuleHandleA(names[i]);
+
+    if (!hPython) return false;
+
+    s_gilEnsure  = (Fn_PyGILState_Ensure)  GetProcAddress(hPython, "PyGILState_Ensure");
+    s_gilRelease = (Fn_PyGILState_Release) GetProcAddress(hPython, "PyGILState_Release");
+    s_pyRun      = (Fn_PyRun_SimpleString) GetProcAddress(hPython, "PyRun_SimpleString");
+#else
+    // Linux/macOS — symbols are already in the process from Nuke's embedded Python
+    s_gilEnsure  = (Fn_PyGILState_Ensure)  dlsym(RTLD_DEFAULT, "PyGILState_Ensure");
+    s_gilRelease = (Fn_PyGILState_Release) dlsym(RTLD_DEFAULT, "PyGILState_Release");
+    s_pyRun      = (Fn_PyRun_SimpleString) dlsym(RTLD_DEFAULT, "PyRun_SimpleString");
+#endif
+
+    return s_gilEnsure && s_gilRelease && s_pyRun;
+}
+
 static void runPython(const std::string& cmd)
 {
-    PyGILState_STATE gstate = PyGILState_Ensure();
-    PyRun_SimpleString(cmd.c_str());
-    PyGILState_Release(gstate);
+    if (!resolvePython())
+        return;
+
+    int gstate = s_gilEnsure();
+    s_pyRun(cmd.c_str());
+    s_gilRelease(gstate);
 }
 
 // ============================================================================
