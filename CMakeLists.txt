@@ -154,6 +154,7 @@ target_link_libraries(VisualLayerInspector PRIVATE
 target_compile_definitions(VisualLayerInspector PRIVATE
     FN_EXAMPLE_PLUGIN
     USE_GLEW
+    _USE_MATH_DEFINES
 )
 
 # --------------------------------------------------------------------------
