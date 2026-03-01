@@ -1,0 +1,51 @@
+# Build
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+
+# MSVC
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+*.dir/
+x64/
+Debug/
+Release/
+*.lib
+*.exp
+*.ilk
+*.pdb
+
+# Plugin binaries
+*.so
+*.dylib
+*.dll
+*.o
+*.obj
+
+# Qt MOC
+moc_*.cpp
+mocs_compilation*.cpp
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Nuke
+*.autosave
+*.nk~
