@@ -23,10 +23,13 @@ set QT6_SDK=C:/Qt/6.5.3/msvc2019_64
 set INSTALL_DIR=%USERPROFILE%\.nuke\VisualLayerInspector
 
 :: -------------------------------------------------------------------
-::  Remember current branch so we can return to it
+::  Remember current branch and stash any uncommitted changes
 :: -------------------------------------------------------------------
 for /f "tokens=*" %%a in ('git rev-parse --abbrev-ref HEAD') do set ORIGINAL_BRANCH=%%a
 echo Current branch: %ORIGINAL_BRANCH%
+
+git stash push -m "build_all: auto-stash before multi-version build"
+set STASHED=%errorlevel%
 echo.
 
 :: -------------------------------------------------------------------
@@ -123,9 +126,10 @@ copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%INSTALL_DIR%\nuke14\"
 copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%INSTALL_DIR%\nuke16\"
 
 :: -------------------------------------------------------------------
-::  Return to original branch
+::  Return to original branch and restore stash
 :: -------------------------------------------------------------------
 git checkout %ORIGINAL_BRANCH%
+if %STASHED%==0 git stash pop
 
 echo.
 echo ============================================================
@@ -139,6 +143,7 @@ goto :end
 echo.
 echo Build failed. Returning to original branch...
 git checkout %ORIGINAL_BRANCH%
+if %STASHED%==0 git stash pop
 exit /b 1
 
 :end
