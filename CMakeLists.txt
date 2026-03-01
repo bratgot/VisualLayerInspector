@@ -1,26 +1,22 @@
 # ============================================================================
-# CMakeLists.txt — Visual Layer Inspector, Nuke 16 NDK plugin
+# CMakeLists.txt — Visual Layer Inspector, Nuke 14.1 NDK plugin
 #
 # Usage (Windows):
 #   mkdir build && cd build
 #   cmake .. -G "Visual Studio 17 2022" -A x64 ^
-#       -DNUKE_INSTALL_DIR="C:/Program Files/Nuke16.0v8" ^
-#       -DQT6_SDK_DIR="C:/Qt/6.7.2/msvc2022_64"
+#       -DNUKE_INSTALL_DIR="C:/Program Files/Nuke14.1v8" ^
+#       -DQT5_SDK_DIR="C:/Qt/5.15.2/msvc2019_64"
 #   cmake --build . --config Release
 #
 # Usage (Linux/macOS):
 #   mkdir build && cd build
-#   cmake .. -DNUKE_INSTALL_DIR=/usr/local/Nuke16.0v8
+#   cmake .. -DNUKE_INSTALL_DIR=/usr/local/Nuke14.1v8
 #   cmake --build . --config Release
 #
-# The resulting .dll / .so / .dylib goes into your ~/.nuke or NUKE_PATH.
-#
 # IMPORTANT — Qt on Windows:
-#   Nuke 16 ships Qt 6 DLLs but NOT the cmake config files, headers, or
-#   import libraries needed to compile against them.  You must install a
-#   matching standalone Qt 6 SDK (from the Qt online installer) and pass
-#   its path via -DQT6_SDK_DIR.  At runtime the plugin will use Nuke's
-#   own Qt 6 DLLs since Nuke loads them first.
+#   Nuke 14.1 ships Qt 5 DLLs but NOT the cmake config files, headers, or
+#   import libraries needed to build C++ plugins that use Qt.  Install a
+#   matching standalone Qt 5.15 SDK and pass its path via -DQT5_SDK_DIR.
 # ============================================================================
 cmake_minimum_required(VERSION 3.16)
 project(VisualLayerInspector LANGUAGES CXX)
@@ -29,14 +25,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --------------------------------------------------------------------------
-#  Nuke install path — set via -DNUKE_INSTALL_DIR=... or environment
+#  Nuke install path
 # --------------------------------------------------------------------------
 if(NOT DEFINED NUKE_INSTALL_DIR)
     if(DEFINED ENV{NUKE_INSTALL_DIR})
         set(NUKE_INSTALL_DIR $ENV{NUKE_INSTALL_DIR})
     else()
         message(FATAL_ERROR
-            "NUKE_INSTALL_DIR not set. Pass -DNUKE_INSTALL_DIR=/path/to/Nuke16.0vX")
+            "NUKE_INSTALL_DIR not set. Pass -DNUKE_INSTALL_DIR=/path/to/Nuke14.1vX")
     endif()
 endif()
 
@@ -68,44 +64,33 @@ endif()
 message(STATUS "DDImage library: ${DDIMAGE_LIBRARY}")
 
 # --------------------------------------------------------------------------
-#  Qt 6 — platform-specific discovery
-# --------------------------------------------------------------------------
-#
-# Windows:
-#   Nuke bundles Qt 6 DLLs but no cmake configs / headers / import libs.
-#   We require a standalone Qt 6 SDK for compiling. Set QT6_SDK_DIR to the
-#   compiler-specific prefix, e.g. C:/Qt/6.7.2/msvc2022_64
-#
-# Linux / macOS:
-#   Nuke typically ships Qt with cmake configs in its lib tree, or we fall
-#   back to a system / standalone Qt.
+#  Qt 5
 # --------------------------------------------------------------------------
 if(WIN32)
-    # --- Windows: use standalone Qt 6 SDK ---
-    if(NOT DEFINED QT6_SDK_DIR)
-        if(DEFINED ENV{QT6_SDK_DIR})
-            set(QT6_SDK_DIR $ENV{QT6_SDK_DIR})
+    # --- Windows: use standalone Qt 5 SDK ---
+    if(NOT DEFINED QT5_SDK_DIR)
+        if(DEFINED ENV{QT5_SDK_DIR})
+            set(QT5_SDK_DIR $ENV{QT5_SDK_DIR})
         else()
             message(FATAL_ERROR
-                "QT6_SDK_DIR not set.\n"
-                "Nuke 16 on Windows ships Qt 6 DLLs but not the headers or cmake\n"
-                "config files needed to build C++ plugins that use Qt.\n\n"
-                "Install the Qt 6 online installer (https://www.qt.io/download-qt-installer)\n"
-                "and select the MSVC 2022 64-bit component. Then pass:\n"
-                "  -DQT6_SDK_DIR=\"C:/Qt/6.7.2/msvc2022_64\"\n"
-                "(adjust the version to match what Nuke 16.0v8 ships).")
+                "QT5_SDK_DIR not set.\n"
+                "Nuke 14.1 ships Qt 5 DLLs but not the headers or cmake config\n"
+                "files needed to build C++ plugins that use Qt.\n\n"
+                "Install Qt 5.15.x from the Qt online installer and select the\n"
+                "MSVC 2019 64-bit component. Then pass:\n"
+                "  -DQT5_SDK_DIR=\"C:/Qt/5.15.2/msvc2019_64\"\n"
+                "(adjust the version to match what Nuke 14.1 ships).")
         endif()
     endif()
 
-    if(NOT EXISTS "${QT6_SDK_DIR}/lib/cmake/Qt6/Qt6Config.cmake")
+    if(NOT EXISTS "${QT5_SDK_DIR}/lib/cmake/Qt5/Qt5Config.cmake")
         message(FATAL_ERROR
-            "Cannot find Qt6Config.cmake in ${QT6_SDK_DIR}/lib/cmake/Qt6/\n"
-            "Check that QT6_SDK_DIR points to the correct Qt prefix, e.g.\n"
-            "  C:/Qt/6.7.2/msvc2022_64")
+            "Cannot find Qt5Config.cmake in ${QT5_SDK_DIR}/lib/cmake/Qt5/\n"
+            "Check that QT5_SDK_DIR points to the correct Qt prefix.")
     endif()
 
-    message(STATUS "Qt6 SDK dir: ${QT6_SDK_DIR}")
-    list(PREPEND CMAKE_PREFIX_PATH "${QT6_SDK_DIR}")
+    message(STATUS "Qt5 SDK dir: ${QT5_SDK_DIR}")
+    list(PREPEND CMAKE_PREFIX_PATH "${QT5_SDK_DIR}")
 
 else()
     # --- Linux / macOS: try Nuke's bundled Qt first, then system ---
@@ -120,32 +105,29 @@ else()
     list(APPEND CMAKE_PREFIX_PATH "${NUKE_INSTALL_DIR}")
 endif()
 
-find_package(Qt6 COMPONENTS Core Gui Widgets REQUIRED)
-message(STATUS "Found Qt6: ${Qt6Core_VERSION}")
-set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
+find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
+message(STATUS "Found Qt5: ${Qt5Core_VERSION}")
+set(QT_LIBS Qt5::Core Qt5::Gui Qt5::Widgets)
 
 # Enable MOC for Q_OBJECT macros
 set(CMAKE_AUTOMOC ON)
 
 # --------------------------------------------------------------------------
-#  Python 3 — Nuke embeds Python; we need the headers to call PyGILState /
-#  PyRun_SimpleString. At runtime the functions resolve from Nuke's Python.
+#  Python 3
 # --------------------------------------------------------------------------
-# Try Nuke's bundled Python first, then fall back to system Python
 set(NUKE_PYTHON_INCLUDE "${NUKE_INSTALL_DIR}/include")
 if(EXISTS "${NUKE_PYTHON_INCLUDE}/Python.h")
     message(STATUS "Using Nuke's bundled Python headers: ${NUKE_PYTHON_INCLUDE}")
     set(PYTHON_INCLUDE_DIR "${NUKE_PYTHON_INCLUDE}")
-    set(PYTHON_LINK_LIBS "")   # symbols resolve from Nuke at runtime
+    set(PYTHON_LINK_LIBS "")
 else()
     find_package(Python3 COMPONENTS Development REQUIRED)
     message(STATUS "Found Python3: ${Python3_VERSION} at ${Python3_INCLUDE_DIRS}")
     set(PYTHON_INCLUDE_DIR "${Python3_INCLUDE_DIRS}")
     if(WIN32)
-        # On Windows we need the import lib for PyGILState etc.
         set(PYTHON_LINK_LIBS Python3::Python)
     else()
-        set(PYTHON_LINK_LIBS "")   # Linux/macOS resolve from Nuke
+        set(PYTHON_LINK_LIBS "")
     endif()
 endif()
 
@@ -169,11 +151,9 @@ target_link_libraries(VisualLayerInspector PRIVATE
     ${PYTHON_LINK_LIBS}
 )
 
-# Nuke plugins need specific defines
 target_compile_definitions(VisualLayerInspector PRIVATE
-    FN_EXAMPLE_PLUGIN          # suppresses some DDImage warnings
-    USE_GLEW                   # Nuke's GL requirement
-    _USE_MATH_DEFINES          # required by Nuke 16 DDImage headers on MSVC
+    FN_EXAMPLE_PLUGIN
+    USE_GLEW
 )
 
 # --------------------------------------------------------------------------
@@ -185,7 +165,7 @@ if(APPLE)
         INSTALL_RPATH "@loader_path"
     )
     target_link_options(VisualLayerInspector PRIVATE
-        -undefined dynamic_lookup   # DDImage symbols resolved at load time
+        -undefined dynamic_lookup
     )
 elseif(UNIX)
     set_target_properties(VisualLayerInspector PROPERTIES
@@ -201,14 +181,13 @@ elseif(WIN32)
         _WIN32
         NOMINMAX
     )
-    # Prevent MSVC linker from stripping the static Op::Description object
     target_link_options(VisualLayerInspector PRIVATE
         /OPT:NOREF
     )
 endif()
 
 # --------------------------------------------------------------------------
-#  Install — drop the plugin into a standard Nuke plugin path
+#  Install
 # --------------------------------------------------------------------------
 install(TARGETS VisualLayerInspector
     LIBRARY DESTINATION "${CMAKE_INSTALL_PREFIX}/nuke_plugins"
@@ -220,7 +199,7 @@ message(STATUS "=== Build configured ===")
 message(STATUS "  Plugin:  VisualLayerInspector")
 message(STATUS "  Nuke:    ${NUKE_INSTALL_DIR}")
 if(WIN32)
-    message(STATUS "  Qt SDK:  ${QT6_SDK_DIR}")
+    message(STATUS "  Qt SDK:  ${QT5_SDK_DIR}")
 endif()
 message(STATUS "  Output:  ${CMAKE_CURRENT_BINARY_DIR}")
 message(STATUS "")
