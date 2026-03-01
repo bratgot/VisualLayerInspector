@@ -113,25 +113,6 @@ set(QT_LIBS Qt5::Core Qt5::Gui Qt5::Widgets)
 set(CMAKE_AUTOMOC ON)
 
 # --------------------------------------------------------------------------
-#  Python 3
-# --------------------------------------------------------------------------
-set(NUKE_PYTHON_INCLUDE "${NUKE_INSTALL_DIR}/include")
-if(EXISTS "${NUKE_PYTHON_INCLUDE}/Python.h")
-    message(STATUS "Using Nuke's bundled Python headers: ${NUKE_PYTHON_INCLUDE}")
-    set(PYTHON_INCLUDE_DIR "${NUKE_PYTHON_INCLUDE}")
-    set(PYTHON_LINK_LIBS "")
-else()
-    find_package(Python3 COMPONENTS Development REQUIRED)
-    message(STATUS "Found Python3: ${Python3_VERSION} at ${Python3_INCLUDE_DIRS}")
-    set(PYTHON_INCLUDE_DIR "${Python3_INCLUDE_DIRS}")
-    if(WIN32)
-        set(PYTHON_LINK_LIBS Python3::Python)
-    else()
-        set(PYTHON_LINK_LIBS "")
-    endif()
-endif()
-
-# --------------------------------------------------------------------------
 #  Plugin target
 # --------------------------------------------------------------------------
 add_library(VisualLayerInspector SHARED
@@ -142,13 +123,11 @@ add_library(VisualLayerInspector SHARED
 
 target_include_directories(VisualLayerInspector PRIVATE
     "${NUKE_INCLUDE_DIR}"
-    "${PYTHON_INCLUDE_DIR}"
 )
 
 target_link_libraries(VisualLayerInspector PRIVATE
     ${DDIMAGE_LIBRARY}
     ${QT_LIBS}
-    ${PYTHON_LINK_LIBS}
 )
 
 target_compile_definitions(VisualLayerInspector PRIVATE
