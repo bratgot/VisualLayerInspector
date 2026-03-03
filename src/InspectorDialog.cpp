@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v11
+// InspectorDialog.cpp — Visual Layer Inspector v12
 //
-// v11: Modeless window — Nuke stays interactive, Viewer updates live.
+// v12: Smooth grid reflow during slider drag — columns update in real time.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -485,7 +485,15 @@ void InspectorDialog::onThumbnailSizeDrag(int value)
     thumbHeight_ = static_cast<int>(value * kAspectRatio);
     sizeLabel_->setText(QString::number(value) + "px");
     if (!scanned_ || buttons_.empty()) return;
-    resizeButtonsInPlace();
+
+    int newCols = computeColumns();
+    if (newCols != lastColumnCount_) {
+        // Column count changed — full grid rebuild (reflow)
+        buildGrid();
+    } else {
+        // Same columns — just resize in place (fast)
+        resizeButtonsInPlace();
+    }
 }
 
 void InspectorDialog::resizeButtonsInPlace()
@@ -539,6 +547,7 @@ void InspectorDialog::buildGrid()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const int cols = computeColumns();
+    lastColumnCount_ = cols;
     const QString filter = filterEdit_ ? filterEdit_->text().toLower() : QString();
 
     LayerCategory lastCat = LayerCategory::Custom;
