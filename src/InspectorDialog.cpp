@@ -1,7 +1,8 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v18
+// InspectorDialog.cpp — Visual Layer Inspector v18.1
 //
-// v18: Instant sort — buttons are stored in LayerEntry and move with
+// v18.1: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+//        Buttons without thumbnails use iconSize(0,0) — zero rescale cost.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
 //
@@ -297,13 +298,9 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     row3->addWidget(regenBtn_);
 
     row3->addSpacing(10);
-
     autoThumbCheck_ = new QCheckBox("Auto Thumbnails");
     autoThumbCheck_->setChecked(true);
-    autoThumbCheck_->setStyleSheet("QCheckBox { font-size: 12px; color: #bbbbbb; }");
-    autoThumbCheck_->setToolTip(
-        "When checked, thumbnails generate automatically on launch.\n"
-        "Uncheck for large EXRs \xe2\x80\x94 use Regenerate to render manually.");
+    autoThumbCheck_->setToolTip("When unchecked, thumbnails are not generated on launch.\nUse Regenerate to render manually.");
     row3->addWidget(autoThumbCheck_);
 
     row3->addStretch();
@@ -335,7 +332,7 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     scrollArea_->setWidget(container_);
     mainLayout->addWidget(scrollArea_, 1);
 
-    // Empty state label (same stretch as scroll area so it fills the space)
+    // Empty state label
     emptyLabel_ = new QLabel(
         "All category checkboxes are unchecked \xe2\x80\x94 tick at least one to display layers.");
     emptyLabel_->setAlignment(Qt::AlignCenter);
@@ -419,14 +416,15 @@ void InspectorDialog::autoInit()
     updateCategoryCounts();
     buildGrid();
 
-    if (autoThumbCheck_->isChecked()) {
-        QTimer::singleShot(1, this, [this]() { beginRendering(); });
-    } else {
-        regenBtn_->setEnabled(true);
-        progressBar_->setRange(0, 1);
-        progressBar_->setValue(0);
-        progressBar_->setFormat("Thumbnails disabled \xe2\x80\x94 click Regenerate");
-    }
+    QTimer::singleShot(1, this, [this]() {
+        if (autoThumbCheck_ && autoThumbCheck_->isChecked())
+            beginRendering();
+        else {
+            regenBtn_->setEnabled(true);
+            statusLabel_->setText(QString("Found %1 layers — Auto Thumbnails off, click Regenerate to render.")
+                                 .arg(layers_.size()));
+        }
+    });
 }
 
 // ============================================================================
@@ -651,6 +649,10 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
+    // --- v18.1: batch all layout changes into ONE repaint ---
+    QWidget* container = scrollArea_->widget();
+    if (container) container->setUpdatesEnabled(false);
+
     // Delete old group headers
     for (auto* h : groupHeaders_) {
         grid_->removeWidget(h);
@@ -707,6 +709,8 @@ void InspectorDialog::reorderGridFast()
         grid_->addWidget(le.button, gridIdx / cols, gridIdx % cols);
         ++gridIdx;
     }
+
+    if (container) container->setUpdatesEnabled(true);
 }
 
 // ============================================================================
@@ -732,17 +736,21 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnHeight = thumbHeight_ + 40;
     const QSize iconSize(thumbWidth_, thumbHeight_);
 
-    // Check if any thumbnails exist — if not, skip all pixmap work
+    // Check if ANY thumbnails exist — if not, skip all icon work entirely.
     bool anyThumbs = false;
-    for (auto& le : layers_) {
+    for (const auto& le : layers_) {
         if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
     }
+
+    // --- v18.1: batch all layout changes into ONE repaint ---
+    QWidget* container = scrollArea_->widget();
+    if (container) container->setUpdatesEnabled(false);
 
     for (auto& le : layers_) {
         if (!le.button) continue;
         le.button->setFixedSize(btnWidth, btnHeight);
 
-        if (!anyThumbs) continue;   // just resize geometry, no icon update
+        if (!anyThumbs) continue;   // pure geometry — no icon/pixmap work
 
         le.button->setIconSize(iconSize);
         if (!le.thumbnail.isNull()) {
@@ -751,14 +759,19 @@ void InspectorDialog::resizeButtonsInPlace()
                                     Qt::KeepAspectRatio, Qt::FastTransformation));
             le.button->setIcon(QIcon(pm));
         }
-        // Skip placeholder for unrendered layers — avoids expensive rescaling
     }
+
+    if (container) container->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::reflowGridFast()
 {
     const int cols = computeColumns();
     lastColumnCount_ = cols;
+
+    // --- v18.1: batch all layout changes into ONE repaint ---
+    QWidget* container = scrollArea_->widget();
+    if (container) container->setUpdatesEnabled(false);
 
     for (auto* h : groupHeaders_) {
         grid_->removeWidget(h);
@@ -778,24 +791,22 @@ void InspectorDialog::reflowGridFast()
             ++gridIdx;
         }
     }
+
+    if (container) container->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
-
-    // Check if any thumbnails exist
+    // When no thumbnails exist, skip full rebuild — just reflow geometry
     bool anyThumbs = false;
-    for (auto& le : layers_) {
+    for (const auto& le : layers_) {
         if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
     }
-
     if (anyThumbs) {
-        // Full rebuild for SmoothTransformation quality
-        buildGrid();
+        buildGrid();   // full rebuild with SmoothTransformation
     } else {
-        // No thumbnails — just reflow, skip expensive rebuild
-        reorderGridFast();
+        reflowGridFast();  // just reposition, no pixmap work
     }
 }
 
@@ -810,6 +821,10 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
+    // --- v18.1: batch all layout changes into ONE repaint ---
+    QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
+    if (container) container->setUpdatesEnabled(false);
+
     // Destroy existing buttons
     for (auto& le : layers_) {
         if (le.button) { le.button->setParent(nullptr); delete le.button; le.button = nullptr; }
@@ -863,18 +878,22 @@ void InspectorDialog::buildGrid()
         QString label = QString::fromStdString(le.name);
         if (le.channelCount > 0) label += QString("  [%1ch]").arg(le.channelCount);
         btn->setText(label);
-        btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setFixedSize(btnWidth, btnHeight);
-        btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
         btn->setStyleSheet("QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
 
         if (!le.thumbnail.isNull()) {
+            btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
                                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
+        } else {
+            // No thumbnail — TextUnderIcon with zero icon size reserves no space
+            // and avoids expensive setIconSize rescaling during slider drag
+            btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+            btn->setIconSize(QSize(0, 0));
         }
-        // No placeholder pixmap — avoids expensive rescaling during slider drag
 
         std::string layerName = le.name;
         connect(btn, &QToolButton::clicked, this,
@@ -888,6 +907,8 @@ void InspectorDialog::buildGrid()
             ++gridIdx;
         }
     }
+
+    if (container) container->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::updateProgress()
@@ -920,6 +941,6 @@ void InspectorDialog::onProxyChanged(int comboIndex)
     if (newStep == proxyStep_) return;
     proxyStep_ = newStep;
     if (!scanned_) return;
-    if (!autoThumbCheck_->isChecked()) return;   // respect checkbox
-    onRegenerate();
+    if (autoThumbCheck_ && autoThumbCheck_->isChecked())
+        onRegenerate();
 }
