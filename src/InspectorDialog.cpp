@@ -297,12 +297,6 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     connect(regenBtn_, &QPushButton::clicked, this, &InspectorDialog::onRegenerate);
     row3->addWidget(regenBtn_);
 
-    row3->addSpacing(10);
-    autoThumbCheck_ = new QCheckBox("Auto Thumbnails");
-    autoThumbCheck_->setChecked(true);
-    autoThumbCheck_->setToolTip("When unchecked, thumbnails are not generated on launch.\nUse Regenerate to render manually.");
-    row3->addWidget(autoThumbCheck_);
-
     row3->addStretch();
     controlsLayout->addLayout(row3);
 
@@ -421,13 +415,7 @@ void InspectorDialog::autoInit()
     updateCategoryCounts();
     buildGrid();
 
-    if (autoThumbCheck_ && autoThumbCheck_->isChecked())
-        beginRendering();
-    else {
-        regenBtn_->setEnabled(true);
-        statusLabel_->setText(QString("Found %1 layers — Auto Thumbnails off, click Regenerate to render.")
-                             .arg(layers_.size()));
-    }
+    beginRendering();
 }
 
 // ============================================================================
