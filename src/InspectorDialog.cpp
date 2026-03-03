@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v18.2
+// InspectorDialog.cpp — Visual Layer Inspector v18.3
 //
-// v18.2: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+// v18.3: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
 //        Buttons without thumbnails use iconSize(0,0) — zero rescale cost.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
@@ -653,7 +653,7 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
-    // --- v18.2: batch all layout changes into ONE repaint ---
+    // --- v18.3: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -738,31 +738,14 @@ void InspectorDialog::resizeButtonsInPlace()
 {
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
-    const QSize iconSize(thumbWidth_, thumbHeight_);
 
-    // Check if ANY thumbnails exist — if not, skip all icon work entirely.
-    bool anyThumbs = false;
-    for (const auto& le : layers_) {
-        if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
-    }
-
-    // --- v18.2: batch all layout changes into ONE repaint ---
+    // --- v18.3: geometry only during drag — pixmaps rebuild on release ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
     for (auto& le : layers_) {
         if (!le.button) continue;
         le.button->setFixedSize(btnWidth, btnHeight);
-
-        if (!anyThumbs) continue;   // pure geometry — no icon/pixmap work
-
-        le.button->setIconSize(iconSize);
-        if (!le.thumbnail.isNull()) {
-            QPixmap pm = QPixmap::fromImage(
-                le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                    Qt::KeepAspectRatio, Qt::FastTransformation));
-            le.button->setIcon(QIcon(pm));
-        }
     }
 
     if (container) container->setUpdatesEnabled(true);
@@ -773,7 +756,7 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
-    // --- v18.2: batch all layout changes into ONE repaint ---
+    // --- v18.3: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -802,16 +785,29 @@ void InspectorDialog::reflowGridFast()
 void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
-    // When no thumbnails exist, skip full rebuild — just reflow geometry
-    bool anyThumbs = false;
-    for (const auto& le : layers_) {
-        if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
-    }
-    if (anyThumbs) {
-        buildGrid();   // full rebuild with SmoothTransformation
-    } else {
-        reflowGridFast();  // just reposition, no pixmap work
-    }
+    buildGrid();
+}
+
+// ============================================================================
+//  Placeholder thumbnail — subtle dark card with "Generating..." text
+// ============================================================================
+QImage InspectorDialog::makePlaceholder() const
+{
+    QImage img(thumbWidth_, thumbHeight_, QImage::Format_RGB32);
+    img.fill(QColor(34, 34, 34));
+
+    QPainter p(&img);
+    p.setPen(QColor(80, 80, 80));
+    p.drawRect(0, 0, thumbWidth_ - 1, thumbHeight_ - 1);
+
+    QFont f = p.font();
+    f.setPixelSize(std::max(10, thumbHeight_ / 8));
+    p.setFont(f);
+    p.setPen(QColor(100, 100, 100));
+    p.drawText(QRect(0, 0, thumbWidth_, thumbHeight_),
+               Qt::AlignCenter, "Generating\xe2\x80\xa6");
+    p.end();
+    return img;
 }
 
 // ============================================================================
@@ -825,7 +821,7 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
-    // --- v18.2: batch all layout changes into ONE repaint ---
+    // --- v18.3: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
     if (container) container->setUpdatesEnabled(false);
 
@@ -893,10 +889,9 @@ void InspectorDialog::buildGrid()
                                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
         } else {
-            // No thumbnail — TextUnderIcon with zero icon size reserves no space
-            // and avoids expensive setIconSize rescaling during slider drag
             btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-            btn->setIconSize(QSize(0, 0));
+            btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
+            btn->setIcon(QIcon(QPixmap::fromImage(makePlaceholder())));
         }
 
         std::string layerName = le.name;
