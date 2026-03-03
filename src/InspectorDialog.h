@@ -3,6 +3,7 @@
 
 // ============================================================================
 // InspectorDialog.h — Visual Layer Inspector for Nuke 16
+// Version 7
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -17,21 +18,34 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QSlider>
+#include <QComboBox>
+#include <QProgressBar>
+#include <QTimer>
 #include <QImage>
 #include <QPixmap>
 #include <QIcon>
+#include <QElapsedTimer>
+#include <QApplication>
 
 #include <string>
 #include <vector>
 #include <functional>
 
+static constexpr const char* kVLI_Version = "v7";
+
 // ============================================================================
-//  LayerThumbnail
+//  Callback types
 // ============================================================================
-struct LayerThumbnail {
-    std::string  name;
-    QImage       image;
+using RenderOneCallback = std::function<QImage(int layerIndex, int proxyStep)>;
+using LayerCallback     = std::function<void(const std::string&)>;
+
+struct PrepareResult {
+    std::vector<std::string> layerNames;
+    RenderOneCallback        renderOne;
+    bool                     valid = false;
+    std::string              errorMsg;
 };
+using PrepareCallback = std::function<PrepareResult()>;
 
 // ============================================================================
 //  InspectorDialog
@@ -40,47 +54,63 @@ class InspectorDialog : public QDialog {
     Q_OBJECT
 
 public:
-    /// Called when user clicks a thumbnail — arg is layer name.
-    using LayerCallback   = std::function<void(const std::string&)>;
-
-    /// Called when user clicks Update Frame — should return fresh thumbnails.
-    using RefreshCallback = std::function<std::vector<LayerThumbnail>()>;
-
-    explicit InspectorDialog(const std::vector<LayerThumbnail>& thumbnails,
-                             LayerCallback  onLayerSelected,
-                             RefreshCallback onRefresh,
+    explicit InspectorDialog(PrepareCallback prepare,
+                             LayerCallback   onLayerSelected,
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
 
 private slots:
+    void onScanLayers();
+    void onGenerateThumbnails();
+    void onStopResume();
+    void renderNextThumbnail();
     void filterLayers(const QString& text);
     void onThumbnailSizeChanged(int value);
-    void onUpdateFrame();
+    void onProxyChanged(int comboIndex);
 
 private:
     void buildGrid();
     int  computeColumns() const;
+    void scheduleNextRender();
+    void stopRendering();
+    void updateProgress();
+    void updateButtonThumbnail(int index);
 
-    std::vector<LayerThumbnail> thumbnails_;   // stored in reverse order
-    LayerCallback               onLayerSelected_;
-    RefreshCallback             onRefresh_;
+    PrepareCallback           prepare_;
+    LayerCallback             onLayerSelected_;
+    RenderOneCallback         renderOne_;
 
-    int thumbWidth_  = 200;
-    int thumbHeight_ = 120;
+    std::vector<std::string>  layerNames_;
+    std::vector<QImage>       thumbnailImages_;
 
-    static constexpr int kButtonPadding    = 10;
-    static constexpr int kMinThumbSize     = 80;
-    static constexpr int kMaxThumbSize     = 400;
-    static constexpr int kDefaultThumbSize = 200;
-    static constexpr float kAspectRatio    = 0.6f;
+    int           nextRenderIdx_ = 0;
+    bool          rendering_     = false;
+    bool          scanned_       = false;
+    QElapsedTimer perfTimer_;
+    int           proxyStep_     = 4;
+    int           thumbWidth_    = 200;
+    int           thumbHeight_   = 120;
 
-    QVBoxLayout*   mainLayout_  = nullptr;
-    QScrollArea*   scrollArea_  = nullptr;
-    QWidget*       container_   = nullptr;
-    QGridLayout*   grid_        = nullptr;
-    QLineEdit*     filterEdit_  = nullptr;
-    QSlider*       sizeSlider_  = nullptr;
-    QLabel*        sizeLabel_   = nullptr;
+    static constexpr int   kButtonPadding    = 10;
+    static constexpr int   kMinThumbSize     = 80;
+    static constexpr int   kMaxThumbSize     = 400;
+    static constexpr int   kDefaultThumbSize = 200;
+    static constexpr float kAspectRatio      = 0.6f;
+
+    QPushButton*   scanBtn_        = nullptr;
+    QPushButton*   generateBtn_    = nullptr;
+    QPushButton*   stopBtn_        = nullptr;
+    QScrollArea*   scrollArea_     = nullptr;
+    QWidget*       container_      = nullptr;
+    QGridLayout*   grid_           = nullptr;
+    QLineEdit*     filterEdit_     = nullptr;
+    QSlider*       sizeSlider_     = nullptr;
+    QLabel*        sizeLabel_      = nullptr;
+    QComboBox*     proxyCombo_     = nullptr;
+    QProgressBar*  progressBar_    = nullptr;
+    QLabel*        statusLabel_    = nullptr;
+    QLabel*        versionLabel_   = nullptr;
+    QWidget*       controlsWidget_ = nullptr;
 
     struct ButtonEntry {
         std::string   name;

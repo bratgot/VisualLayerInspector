@@ -1,13 +1,10 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
+// Version 7
 //
-// A pass-through NoIop that provides a "Launch Inspector" button. When
-// clicked, it reads all layers from the input via the Tile API, renders
-// down-sampled thumbnails into QImages, and opens a Qt dialog grid.
-//
-// Viewer channel switching dynamically resolves the Python C API from
-// whichever python3X.dll Nuke has loaded — no compile-time Python
-// dependency, works across Nuke 14 (Python 3.9) and Nuke 16 (Python 3.11).
+// launchInspector() does ZERO Nuke work.  exec() opens a modal dialog
+// with its own event loop.  User clicks "Scan Layers" then
+// "Generate Thumbnails".
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -15,11 +12,9 @@
 #include "DDImage/NoIop.h"
 #include "DDImage/Iop.h"
 #include "DDImage/Knobs.h"
-#include "DDImage/Tile.h"
 #include "DDImage/Channel.h"
 #include "DDImage/Row.h"
 
-// FN_EXPORT fallback
 #ifndef FN_EXPORT
   #ifdef _WIN32
     #define FN_EXPORT __declspec(dllexport)
@@ -37,7 +32,6 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 
 #ifdef _WIN32
   #include <windows.h>
@@ -47,31 +41,21 @@
 
 using namespace DD::Image;
 
-// ============================================================================
-//  Constants
-// ============================================================================
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector\n\n"
+    "Visual Layer Inspector v7\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
-    "Thumbnails are rendered via the NDK Tile API from cached image data.";
+    "Thumbnails render progressively using the Row API with strided fetching "
+    "for minimal memory usage. Use Proxy mode for faster browsing.";
 
 static constexpr int kThumbMaxWidth  = 240;
 static constexpr int kThumbMaxHeight = 160;
 
 // ============================================================================
-//  Python helper — dynamically resolve PyGILState / PyRun_SimpleString
-//
-//  This avoids linking against any specific Python version at compile time.
-//  At runtime, Nuke will already have python3X.dll loaded, so we just grab
-//  the function pointers from it. Works across Nuke 14 (3.9) and 16 (3.11).
+//  Python helper
 // ============================================================================
-
-// Python GIL state enum — matches all Python 3.x versions
-enum PyGILState { PyGILState_LOCKED, PyGILState_UNLOCKED };
-
 using Fn_PyGILState_Ensure  = int (*)();
 using Fn_PyGILState_Release = void (*)(int);
 using Fn_PyRun_SimpleString = int (*)(const char*);
@@ -82,12 +66,8 @@ static Fn_PyRun_SimpleString s_pyRun      = nullptr;
 
 static bool resolvePython()
 {
-    // Already resolved
-    if (s_gilEnsure && s_gilRelease && s_pyRun)
-        return true;
-
+    if (s_gilEnsure && s_gilRelease && s_pyRun) return true;
 #ifdef _WIN32
-    // Try python DLLs that Nuke might have loaded (3.9 through 3.13)
     HMODULE hPython = nullptr;
     const char* names[] = {
         "python313.dll", "python312.dll", "python311.dll",
@@ -95,27 +75,21 @@ static bool resolvePython()
     };
     for (int i = 0; names[i] && !hPython; ++i)
         hPython = GetModuleHandleA(names[i]);
-
     if (!hPython) return false;
-
     s_gilEnsure  = (Fn_PyGILState_Ensure)  GetProcAddress(hPython, "PyGILState_Ensure");
     s_gilRelease = (Fn_PyGILState_Release) GetProcAddress(hPython, "PyGILState_Release");
     s_pyRun      = (Fn_PyRun_SimpleString) GetProcAddress(hPython, "PyRun_SimpleString");
 #else
-    // Linux/macOS — symbols are already in the process from Nuke's embedded Python
     s_gilEnsure  = (Fn_PyGILState_Ensure)  dlsym(RTLD_DEFAULT, "PyGILState_Ensure");
     s_gilRelease = (Fn_PyGILState_Release) dlsym(RTLD_DEFAULT, "PyGILState_Release");
     s_pyRun      = (Fn_PyRun_SimpleString) dlsym(RTLD_DEFAULT, "PyRun_SimpleString");
 #endif
-
     return s_gilEnsure && s_gilRelease && s_pyRun;
 }
 
 static void runPython(const std::string& cmd)
 {
-    if (!resolvePython())
-        return;
-
+    if (!resolvePython()) return;
     int gstate = s_gilEnsure();
     s_pyRun(cmd.c_str());
     s_gilRelease(gstate);
@@ -124,8 +98,6 @@ static void runPython(const std::string& cmd)
 // ============================================================================
 //  Helpers
 // ============================================================================
-
-/// Collect unique layer names from a ChannelSet.
 static std::vector<std::string> collectLayers(const ChannelSet& channels)
 {
     std::set<std::string> layerSet;
@@ -138,7 +110,6 @@ static std::vector<std::string> collectLayers(const ChannelSet& channels)
     return {layerSet.begin(), layerSet.end()};
 }
 
-/// For a given layer name, find which channels map to R, G, B, A.
 struct LayerChannels {
     Channel r = Chan_Black;
     Channel g = Chan_Black;
@@ -158,31 +129,22 @@ static LayerChannels resolveLayerChannels(const std::string& layer,
         const size_t dot = name.find('.');
         if (dot == std::string::npos) continue;
         if (name.substr(0, dot) != layer) continue;
-
         found.push_back(z);
         const std::string suffix = name.substr(dot + 1);
-
-        if (suffix == "red"   || suffix == "r" || suffix == "x") lc.r = z;
+        if      (suffix == "red"   || suffix == "r" || suffix == "x") lc.r = z;
         else if (suffix == "green" || suffix == "g" || suffix == "y") lc.g = z;
         else if (suffix == "blue"  || suffix == "b" || suffix == "z") lc.b = z;
         else if (suffix == "alpha" || suffix == "a")                  lc.a = z;
     }
 
     lc.count = static_cast<int>(found.size());
-
     if (lc.r == Chan_Black && found.size() > 0) lc.r = found[0];
     if (lc.g == Chan_Black && found.size() > 1) lc.g = found[1];
     if (lc.b == Chan_Black && found.size() > 2) lc.b = found[2];
-
-    if (found.size() == 1) {
-        lc.g = lc.r;
-        lc.b = lc.r;
-    }
-
+    if (found.size() == 1) { lc.g = lc.r; lc.b = lc.r; }
     return lc;
 }
 
-/// Clamp a float to [0, 1] and convert to uint8.
 static inline uint8_t floatToByte(float v)
 {
     if (v <= 0.0f) return 0;
@@ -191,14 +153,15 @@ static inline uint8_t floatToByte(float v)
     return static_cast<uint8_t>(v * 255.0f + 0.5f);
 }
 
-/// Render a thumbnail QImage for a layer.
-static QImage renderThumbnail(Iop& input, const LayerChannels& lc,
-                              const Box& bbox)
+// ============================================================================
+//  Row-based strided thumbnail renderer
+// ============================================================================
+static QImage renderThumbnailStrided(Iop& input, const LayerChannels& lc,
+                                     const Box& bbox, int proxyStep)
 {
     const int srcW = bbox.w();
     const int srcH = bbox.h();
-    if (srcW <= 0 || srcH <= 0)
-        return {};
+    if (srcW <= 0 || srcH <= 0) return {};
 
     const float aspect = static_cast<float>(srcW) / static_cast<float>(srcH);
     int thumbW, thumbH;
@@ -210,53 +173,41 @@ static QImage renderThumbnail(Iop& input, const LayerChannels& lc,
         thumbW = std::max(1, static_cast<int>(kThumbMaxHeight * aspect));
     }
 
+    if (proxyStep > 1) {
+        thumbW = std::max(16, thumbW / proxyStep);
+        thumbH = std::max(16, thumbH / proxyStep);
+    }
+
+    const int strideX = std::max(1, srcW / thumbW);
+    const int strideY = std::max(1, srcH / thumbH);
+
     ChannelSet requestChans;
     if (lc.r != Chan_Black) requestChans += lc.r;
     if (lc.g != Chan_Black) requestChans += lc.g;
     if (lc.b != Chan_Black) requestChans += lc.b;
-    if (requestChans.empty())
-        return {};
-
-    Tile tile(input, bbox.x(), bbox.y(), bbox.r(), bbox.t(), requestChans);
-    if (!tile.valid())
-        return {};
+    if (requestChans.empty()) return {};
 
     QImage img(thumbW, thumbH, QImage::Format_RGB32);
     img.fill(Qt::black);
 
-    const float scaleX = static_cast<float>(srcW) / thumbW;
-    const float scaleY = static_cast<float>(srcH) / thumbH;
+    Row row(bbox.x(), bbox.r());
 
     for (int ty = 0; ty < thumbH; ++ty) {
-        const int srcY0 = bbox.y() + static_cast<int>(ty * scaleY);
-        const int srcY1 = std::min(bbox.y() + static_cast<int>((ty + 1) * scaleY),
-                                   bbox.t() - 1);
+        const int srcY = bbox.y() + (ty * strideY);
+        if (srcY >= bbox.t()) break;
+        input.get(srcY, bbox.x(), bbox.r(), requestChans, row);
 
+        const int flippedY = thumbH - 1 - ty;
         for (int tx = 0; tx < thumbW; ++tx) {
-            const int srcX0 = bbox.x() + static_cast<int>(tx * scaleX);
-            const int srcX1 = std::min(bbox.x() + static_cast<int>((tx + 1) * scaleX),
-                                       bbox.r() - 1);
+            const int srcX = bbox.x() + (tx * strideX);
+            if (srcX >= bbox.r()) break;
 
-            float sumR = 0, sumG = 0, sumB = 0;
-            int   count = 0;
+            float r = (lc.r != Chan_Black) ? row[lc.r][srcX] : 0.0f;
+            float g = (lc.g != Chan_Black) ? row[lc.g][srcX] : 0.0f;
+            float b = (lc.b != Chan_Black) ? row[lc.b][srcX] : 0.0f;
 
-            for (int sy = srcY0; sy <= srcY1; ++sy) {
-                for (int sx = srcX0; sx <= srcX1; ++sx) {
-                    if (lc.r != Chan_Black) sumR += tile[lc.r][sy][sx];
-                    if (lc.g != Chan_Black) sumG += tile[lc.g][sy][sx];
-                    if (lc.b != Chan_Black) sumB += tile[lc.b][sy][sx];
-                    ++count;
-                }
-            }
-
-            if (count > 0) {
-                const float inv = 1.0f / count;
-                const int flippedY = thumbH - 1 - ty;
-                img.setPixel(tx, flippedY,
-                             qRgb(floatToByte(sumR * inv),
-                                  floatToByte(sumG * inv),
-                                  floatToByte(sumB * inv)));
-            }
+            img.setPixel(tx, flippedY,
+                         qRgb(floatToByte(r), floatToByte(g), floatToByte(b)));
         }
     }
 
@@ -269,7 +220,6 @@ static QImage renderThumbnail(Iop& input, const LayerChannels& lc,
 class VisualLayerInspectorOp : public NoIop {
 public:
     VisualLayerInspectorOp(Node* node) : NoIop(node) {}
-
     const char* Class()     const override { return kClass; }
     const char* node_help() const override { return kHelp; }
 
@@ -279,7 +229,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  •  v7</i>");
     }
 
     int knob_changed(Knob* k) override
@@ -292,64 +242,72 @@ public:
     }
 
 private:
-    // ------------------------------------------------------------------
-    //  Render all layer thumbnails from the input Iop
-    // ------------------------------------------------------------------
-    std::vector<LayerThumbnail> renderAllThumbnails()
+    struct PreparedInput {
+        Iop*                       iop = nullptr;
+        std::vector<std::string>   layers;
+        std::vector<LayerChannels> layerChannels;
+        ChannelSet                 allChannels;
+        Box                        bbox;
+        bool                       valid = false;
+    };
+
+    PreparedInput prepareInput()
     {
-        std::vector<LayerThumbnail> thumbnails;
-
+        PreparedInput pi;
         Op* rawInp = input(0);
-        if (!rawInp) return thumbnails;
-
-        Iop* inp = dynamic_cast<Iop*>(rawInp);
-        if (!inp) return thumbnails;
-
-        inp->validate(true);
-        const Info& info = inp->info();
-        const ChannelSet allChannels = info.channels();
-        if (allChannels.empty()) return thumbnails;
-
-        std::vector<std::string> layers = collectLayers(allChannels);
-        if (layers.empty()) return thumbnails;
-
-        const Box& bbox = info.box();
-        inp->request(bbox.x(), bbox.y(), bbox.r(), bbox.t(), allChannels, 1);
-
-        thumbnails.reserve(layers.size());
-        for (const auto& layerName : layers) {
-            LayerChannels lc = resolveLayerChannels(layerName, allChannels);
-            QImage thumb = renderThumbnail(*inp, lc, bbox);
-            thumbnails.push_back({layerName, std::move(thumb)});
-        }
-
-        return thumbnails;
+        if (!rawInp) return pi;
+        pi.iop = dynamic_cast<Iop*>(rawInp);
+        if (!pi.iop) return pi;
+        pi.iop->validate(true);
+        const Info& info = pi.iop->info();
+        pi.allChannels = info.channels();
+        if (pi.allChannels.empty()) return pi;
+        pi.layers = collectLayers(pi.allChannels);
+        if (pi.layers.empty()) return pi;
+        pi.bbox = info.box();
+        pi.iop->request(pi.bbox.x(), pi.bbox.y(),
+                        pi.bbox.r(), pi.bbox.t(),
+                        pi.allChannels, 1);
+        pi.layerChannels.reserve(pi.layers.size());
+        for (const auto& name : pi.layers)
+            pi.layerChannels.push_back(resolveLayerChannels(name, pi.allChannels));
+        pi.valid = true;
+        return pi;
     }
 
-    // ------------------------------------------------------------------
-    //  Launch
-    // ------------------------------------------------------------------
+    RenderOneCallback makeRenderCallback(const PreparedInput& pi)
+    {
+        Iop*                       iop  = pi.iop;
+        std::vector<LayerChannels> lcs  = pi.layerChannels;
+        Box                        bbox = pi.bbox;
+        return [iop, lcs, bbox](int layerIndex, int proxyStep) -> QImage {
+            if (layerIndex < 0 || layerIndex >= static_cast<int>(lcs.size()))
+                return {};
+            return renderThumbnailStrided(*iop, lcs[layerIndex], bbox, proxyStep);
+        };
+    }
+
     void launchInspector()
     {
-        Op* rawInp = input(0);
-        if (!rawInp) {
-            runPython("import nuke; nuke.message('Please connect an input node with layers to inspect.')");
-            return;
-        }
+        // ZERO Nuke work here — just create dialog and exec()
+        auto* self = this;
 
-        Iop* inp = dynamic_cast<Iop*>(rawInp);
-        if (!inp) {
-            runPython("import nuke; nuke.message('Connected input is not an image operator (Iop).')");
-            return;
-        }
+        auto prepare = [self]() -> PrepareResult {
+            PrepareResult pr;
+            PreparedInput pi = self->prepareInput();
+            if (!pi.valid) {
+                pr.valid = false;
+                pr.errorMsg = pi.iop
+                    ? "No layers found on the connected input."
+                    : "No input connected, or input is not an Iop.";
+                return pr;
+            }
+            pr.valid = true;
+            pr.layerNames = std::move(pi.layers);
+            pr.renderOne  = self->makeRenderCallback(pi);
+            return pr;
+        };
 
-        auto thumbnails = renderAllThumbnails();
-        if (thumbnails.empty()) {
-            runPython("import nuke; nuke.message('No layers found on the connected input.')");
-            return;
-        }
-
-        // Layer selection callback — uses Python C API directly
         auto onLayerSelected = [](const std::string& layerName) {
             std::string cmd =
                 "import nuke\n"
@@ -359,17 +317,8 @@ private:
             runPython(cmd);
         };
 
-        // Refresh callback — re-renders all thumbnails at current frame
-        auto* self = this;
-        auto onRefresh = [self]() -> std::vector<LayerThumbnail> {
-            return self->renderAllThumbnails();
-        };
-
-        auto* dlg = new InspectorDialog(thumbnails, onLayerSelected, onRefresh, nullptr);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);
-        dlg->show();
-        dlg->raise();
-        dlg->activateWindow();
+        InspectorDialog dlg(prepare, onLayerSelected, nullptr);
+        dlg.exec();
     }
 
 public:
