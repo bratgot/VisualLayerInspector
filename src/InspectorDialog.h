@@ -2,14 +2,10 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v8
+// InspectorDialog.h — Visual Layer Inspector v9
 //
-// Auto workflow via exec()'s nested event loop:
-//   1. Dialog opens instantly — zero Nuke calls.
-//   2. showEvent → singleShot(0) → auto-scan layers.
-//   3. Grid populates with placeholders → auto-starts rendering.
-//   4. Thumbnails fill in progressively via singleShot chaining.
-//   5. User can Stop/Resume/Filter/Close at any time.
+// v9: Smooth thumbnail slider — resizes buttons in-place during drag,
+//     only reflows grid columns on slider release.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -38,7 +34,7 @@
 #include <vector>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v8";
+static constexpr const char* kVLI_Version = "v9";
 
 // ============================================================================
 //  Callback types
@@ -75,11 +71,13 @@ private slots:
     void onRegenerate();
     void renderNextThumbnail();
     void filterLayers(const QString& text);
-    void onThumbnailSizeChanged(int value);
+    void onThumbnailSizeDrag(int value);
+    void onThumbnailSizeRelease();
     void onProxyChanged(int comboIndex);
 
 private:
     void buildGrid();
+    void resizeButtonsInPlace();
     int  computeColumns() const;
     void beginRendering();
     void scheduleNextRender();

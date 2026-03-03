@@ -1,9 +1,8 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 8
+// Version 9
 //
-// exec() opens modal dialog with nested event loop.
-// showEvent auto-triggers scan + progressive rendering.
+// v9: Smooth thumbnail slider — resize in-place during drag, reflow on release.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -42,7 +41,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v8\n\n"
+    "Visual Layer Inspector v9\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -228,7 +227,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  •  v8</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  •  v9</i>");
     }
 
     int knob_changed(Knob* k) override

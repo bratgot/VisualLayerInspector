@@ -1,8 +1,8 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v8
+// InspectorDialog.cpp — Visual Layer Inspector v9
 //
-// Auto workflow: showEvent → scan → grid → progressive render.
-// User can Stop/Resume/Filter/Resize/Close at any time.
+// v9: Smooth slider — resizes existing buttons in-place during drag
+//     (no widget destruction), reflows grid columns on release only.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -12,7 +12,7 @@
 #include <algorithm>
 
 // ============================================================================
-//  Constructor — builds full UI, zero Nuke calls
+//  Constructor
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
@@ -71,8 +71,12 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     sizeSlider_->setRange(kMinThumbSize, kMaxThumbSize);
     sizeSlider_->setValue(kDefaultThumbSize);
     sizeSlider_->setFixedWidth(160);
+    // Live resize during drag — no rebuild, just resize existing buttons
     connect(sizeSlider_, &QSlider::valueChanged,
-            this,        &InspectorDialog::onThumbnailSizeChanged);
+            this,        &InspectorDialog::onThumbnailSizeDrag);
+    // Full grid reflow on release — recomputes column count
+    connect(sizeSlider_, &QSlider::sliderReleased,
+            this,        &InspectorDialog::onThumbnailSizeRelease);
     row1->addWidget(sizeSlider_);
 
     sizeLabel_ = new QLabel(QString::number(kDefaultThumbSize) + "px");
@@ -123,7 +127,7 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     // Progress
     progressBar_ = new QProgressBar;
-    progressBar_->setRange(0, 0);   // indeterminate until scan done
+    progressBar_->setRange(0, 0);
     progressBar_->setTextVisible(true);
     progressBar_->setFormat("Scanning layers...");
     progressBar_->setFixedHeight(18);
@@ -164,12 +168,11 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     mainLayout->addLayout(footerLayout);
 
-    // Show controls immediately (with indeterminate progress)
     controlsWidget_->setVisible(true);
 }
 
 // ============================================================================
-//  showEvent → auto-init inside exec()'s event loop
+//  showEvent → auto-init
 // ============================================================================
 void InspectorDialog::showEvent(QShowEvent* event)
 {
@@ -181,7 +184,7 @@ void InspectorDialog::showEvent(QShowEvent* event)
 }
 
 // ============================================================================
-//  Auto init — scan layers then start rendering
+//  Auto init
 // ============================================================================
 void InspectorDialog::autoInit()
 {
@@ -215,12 +218,11 @@ void InspectorDialog::autoInit()
         QString("Found %1 layers — generating thumbnails...")
             .arg(layerNames_.size()));
 
-    // Auto-start rendering
     QTimer::singleShot(1, this, [this]() { beginRendering(); });
 }
 
 // ============================================================================
-//  Begin rendering
+//  Rendering
 // ============================================================================
 void InspectorDialog::beginRendering()
 {
@@ -239,9 +241,6 @@ void InspectorDialog::beginRendering()
     scheduleNextRender();
 }
 
-// ============================================================================
-//  singleShot chaining
-// ============================================================================
 void InspectorDialog::scheduleNextRender()
 {
     if (!rendering_) return;
@@ -276,7 +275,7 @@ void InspectorDialog::renderNextThumbnail()
 }
 
 // ============================================================================
-//  Stop / Resume
+//  Stop / Resume / Regenerate
 // ============================================================================
 void InspectorDialog::stopRendering()
 {
@@ -321,6 +320,55 @@ void InspectorDialog::onRegenerate()
     thumbnailImages_.assign(layerNames_.size(), QImage());
     buildGrid();
     beginRendering();
+}
+
+// ============================================================================
+//  Smooth slider: live resize in-place (no rebuild)
+// ============================================================================
+void InspectorDialog::onThumbnailSizeDrag(int value)
+{
+    thumbWidth_  = value;
+    thumbHeight_ = static_cast<int>(value * kAspectRatio);
+    sizeLabel_->setText(QString::number(value) + "px");
+
+    if (!scanned_ || buttons_.empty()) return;
+
+    // Resize existing buttons without destroying them — fast path
+    resizeButtonsInPlace();
+}
+
+void InspectorDialog::resizeButtonsInPlace()
+{
+    const int btnWidth  = thumbWidth_ + kButtonPadding;
+    const int btnHeight = thumbHeight_ + 40;
+    const QSize iconSize(thumbWidth_, thumbHeight_);
+
+    for (int i = 0; i < static_cast<int>(buttons_.size()); ++i) {
+        auto* btn = buttons_[i].button;
+        btn->setFixedSize(btnWidth, btnHeight);
+        btn->setIconSize(iconSize);
+
+        // Re-scale existing thumbnail image if we have one
+        if (i < static_cast<int>(thumbnailImages_.size()) &&
+            !thumbnailImages_[i].isNull())
+        {
+            QPixmap pm = QPixmap::fromImage(
+                thumbnailImages_[i].scaled(thumbWidth_, thumbHeight_,
+                                           Qt::KeepAspectRatio,
+                                           Qt::FastTransformation));
+            btn->setIcon(QIcon(pm));
+        } else {
+            QPixmap placeholder(thumbWidth_, thumbHeight_);
+            placeholder.fill(QColor(40, 40, 40));
+            btn->setIcon(QIcon(placeholder));
+        }
+    }
+}
+
+void InspectorDialog::onThumbnailSizeRelease()
+{
+    // Full grid rebuild to reflow columns for new button size
+    if (scanned_) buildGrid();
 }
 
 // ============================================================================
@@ -423,7 +471,7 @@ void InspectorDialog::updateProgress()
 }
 
 // ============================================================================
-//  Filter / Size / Proxy
+//  Filter / Proxy
 // ============================================================================
 void InspectorDialog::filterLayers(const QString& text)
 {
@@ -435,20 +483,11 @@ void InspectorDialog::filterLayers(const QString& text)
     }
 }
 
-void InspectorDialog::onThumbnailSizeChanged(int value)
-{
-    thumbWidth_  = value;
-    thumbHeight_ = static_cast<int>(value * kAspectRatio);
-    sizeLabel_->setText(QString::number(value) + "px");
-    if (scanned_) buildGrid();
-}
-
 void InspectorDialog::onProxyChanged(int comboIndex)
 {
     int newStep = proxyCombo_->itemData(comboIndex).toInt();
     if (newStep == proxyStep_) return;
     proxyStep_ = newStep;
     if (!scanned_) return;
-    // Re-render with new proxy
     onRegenerate();
 }
