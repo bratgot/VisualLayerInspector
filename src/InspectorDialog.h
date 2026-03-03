@@ -2,10 +2,10 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v16
+// InspectorDialog.h — Visual Layer Inspector v17
 //
-// v16: Category filter checkboxes — toggle Lighting, Utility, Data,
-//      Cryptomatte, Custom groups on/off independently.
+// v17: Instant sort — reorderGridFast() repositions existing buttons
+//      without destroying/recreating. All button for category checkboxes.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -36,7 +36,7 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v16";
+static constexpr const char* kVLI_Version = "v17";
 
 // ============================================================================
 //  Callback types
@@ -72,6 +72,7 @@ struct LayerEntry {
     int           channelCount;
     LayerCategory category;
     QImage        thumbnail;
+    QToolButton*  button = nullptr;   // persistent button — survives sort
 };
 
 // ============================================================================
@@ -108,20 +109,20 @@ private slots:
     void onSortChanged(int comboIndex);
     void onReverseToggle();
     void onCategoryToggle();
+    void onCatAll();
 
 private:
     void buildGrid();
+    void reorderGridFast();
     void resizeButtonsInPlace();
     void reflowGridFast();
     void sortLayers();
-    void applySortAndRebuild();
     void applyVisibility();
     int  computeColumns() const;
     void beginRendering();
     void scheduleNextRender();
     void stopRendering();
     void updateProgress();
-    void updateButtonThumbnail(int displayIndex);
     void updateCategoryCounts();
 
     PrepareCallback           prepare_;
@@ -151,6 +152,7 @@ private:
     QPushButton*   stopBtn_        = nullptr;
     QPushButton*   regenBtn_       = nullptr;
     QPushButton*   reverseBtn_     = nullptr;
+    QPushButton*   catAllBtn_      = nullptr;
     QScrollArea*   scrollArea_     = nullptr;
     QWidget*       container_      = nullptr;
     QGridLayout*   grid_           = nullptr;
@@ -162,17 +164,9 @@ private:
     QProgressBar*  progressBar_    = nullptr;
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
-    QWidget*       categoryRow_    = nullptr;
-    QPushButton*   catAllBtn_      = nullptr;
     QLabel*        emptyLabel_     = nullptr;
 
     std::map<LayerCategory, QCheckBox*> categoryChecks_;
-
-    struct ButtonEntry {
-        int            layerIdx;
-        QToolButton*   button;
-    };
-    std::vector<ButtonEntry> buttons_;
     std::vector<QLabel*>     groupHeaders_;
 };
 
