@@ -150,10 +150,38 @@ if !errorlevel! neq 0 (
     echo WARNING: Failed to copy Nuke 16 DLL
 )
 
-copy /Y "src\visual_layer_inspector.py" "%USERPROFILE%\.nuke\"
+copy /Y "python\visual_layer_inspector.py" "%USERPROFILE%\.nuke\"
 if !errorlevel! neq 0 (
     echo WARNING: Failed to copy Python script
 )
+
+:: -------------------------------------------------------------------
+::  Package for distribution
+:: -------------------------------------------------------------------
+echo ============================================================
+echo  Packaging for distribution
+echo ============================================================
+
+set PKG_DIR=dist\VisualLayerInspector
+
+if exist dist rd /s /q dist
+mkdir "%PKG_DIR%\nuke14" 2>nul
+mkdir "%PKG_DIR%\nuke16" 2>nul
+
+copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke14\" >nul
+copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke16\" >nul
+copy /Y "python\visual_layer_inspector.py" "%PKG_DIR%\" >nul
+copy /Y "INSTALL.md" "%PKG_DIR%\" >nul
+copy /Y "install.bat" "%PKG_DIR%\" >nul
+
+:: Create zip using PowerShell
+powershell -NoProfile -Command "Compress-Archive -Path 'dist\VisualLayerInspector' -DestinationPath 'dist\VisualLayerInspector_v18.3.zip' -Force"
+if !errorlevel! neq 0 (
+    echo WARNING: Could not create zip — files are in dist\VisualLayerInspector\
+) else (
+    echo Package created: dist\VisualLayerInspector_v18.3.zip
+)
+echo.
 
 :: -------------------------------------------------------------------
 ::  Return to original branch and restore stash
@@ -170,6 +198,7 @@ echo  Done! Both versions installed:
 echo    Nuke 14: %INSTALL_DIR%\nuke14\VisualLayerInspector.dll
 echo    Nuke 16: %INSTALL_DIR%\nuke16\VisualLayerInspector.dll
 echo    Python:  %USERPROFILE%\.nuke\visual_layer_inspector.py
+echo    Package: dist\VisualLayerInspector_v18.3.zip
 echo ============================================================
 goto :end
 
