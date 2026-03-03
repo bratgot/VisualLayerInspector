@@ -1,137 +1,156 @@
-# Visual Layer Inspector
+# Visual Layer Inspector for Nuke
 
-A native C++ plugin for Nuke 14.1 that displays a thumbnail grid of every layer/AOV on a connected input. Click any thumbnail to instantly switch the active Viewer to that layer.
+A fast, interactive thumbnail grid for browsing EXR layers and AOVs in Foundry Nuke. Click any layer to instantly switch the Viewer — no more scrolling through channel dropdowns.
 
-![Nuke 14.1](https://img.shields.io/badge/Nuke-14.1-blue) ![C++17](https://img.shields.io/badge/C%2B%2B-17-blue) ![Qt 5](https://img.shields.io/badge/Qt-5-green) ![License: MIT](https://img.shields.io/badge/License-MIT-yellow)
-
-> **Branch note:** This is the `nuke/14.1` branch targeting Nuke 14.1 (Qt 5). For Nuke 16 (Qt 6), see the [`main`](../../tree/main) branch.
+![Version](https://img.shields.io/badge/version-v11-green)
+![Nuke](https://img.shields.io/badge/Nuke-14%20%7C%2016-blue)
+![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 
 ## Features
 
-- **Thumbnail grid** — Every layer rendered as a visual preview via the NDK Tile API (no temp nodes, no disk I/O)
-- **Click to view** — Click any thumbnail to set the active Viewer channel
-- **Filter bar** — Type to search layers by name
-- **Size slider** — Resize thumbnails from 80px to 400px
-- **Update Frame** — Re-capture thumbnails at the current frame to reflect animation or upstream changes
-- **Zero render cost** — NoIop pass-through; the node itself adds nothing to the render graph
+- **Thumbnail grid** of every layer/AOV in your EXR, rendered progressively
+- **Click to view** — switches the active Viewer to that layer instantly
+- **Modeless window** — Nuke stays fully interactive while the inspector is open
+- **Smart sorting** — sort by Type Group, Alphabetical, Channel Count, or Original Order
+- **Type Group auto-categorisation** — layers are classified into Lighting, Utility, Data, Cryptomatte, and Custom based on naming conventions
+- **Filter** — type to search across layer names in real time
+- **Adjustable thumbnail size** — smooth slider resizes live during drag
+- **Proxy modes** — Full, 2x, 4x, 8x for fast browsing of heavy EXRs
+- **Stop / Resume** — pause thumbnail generation at any time
+- **Channel count badges** — each layer shows its channel count (e.g. `[3ch]`, `[4ch]`)
 
-## Project Structure
+## Layer Categories (Type Group Sort)
 
-```
-VisualLayerInspector/
-├── CMakeLists.txt                # Build configuration (Qt 5)
-├── menu.py                       # Optional Nuke toolbar integration
-├── .gitignore
-├── LICENSE
-├── README.md
-└── src/
-    ├── VisualLayerInspector.cpp   # NDK Op — NoIop + Tile rendering + Python C API bridge
-    ├── InspectorDialog.h          # Qt dialog header
-    └── InspectorDialog.cpp        # Dialog — grid, filter, slider, update frame
-```
-
-## Prerequisites
-
-- **Nuke 14.1** with NDK headers (ships by default)
-- **CMake ≥ 3.16**
-- **C++17 compiler** — MSVC 2022/2019, GCC 9+, or Clang 11+
-- **Qt 5.15 SDK** (Windows only — see below)
-- **Python 3 development headers** (Windows only)
-
-### Windows Qt Note
-
-Nuke 14.1 bundles Qt 5 DLLs but does not ship headers or CMake config files. Install a matching Qt 5.15 SDK from the [Qt Online Installer](https://www.qt.io/download-qt-installer) and select the **MSVC 2019 64-bit** component.
-
-Check your Nuke's Qt version in the Script Editor:
-```python
-from PySide2 import QtCore; print(QtCore.qVersion())
-```
-
-## Building
-
-### Windows
-
-```bat
-cd VisualLayerInspector
-mkdir build && cd build
-
-cmake .. -G "Visual Studio 17 2022" -A x64 ^
-    -DNUKE_INSTALL_DIR="C:/Program Files/Nuke14.1v8" ^
-    -DQT5_SDK_DIR="C:/Qt/5.15.2/msvc2019_64" ^
-    -DCMAKE_PREFIX_PATH="C:/Qt/5.15.2/msvc2019_64"
-
-cmake --build . --config Release
-```
-
-Output: `build/Release/VisualLayerInspector.dll`
-
-### Linux
-
-```bash
-cd VisualLayerInspector
-mkdir build && cd build
-
-cmake .. -DNUKE_INSTALL_DIR=/usr/local/Nuke14.1v8
-cmake --build . --config Release
-```
-
-### macOS
-
-```bash
-cd VisualLayerInspector
-mkdir build && cd build
-
-cmake .. -DNUKE_INSTALL_DIR=/Applications/Nuke14.1v8/Nuke14.1v8.app/Contents/MacOS
-cmake --build . --config Release
-```
+| Category | Matches |
+|---|---|
+| **Lighting** | diffuse, specular, reflection, emission, sss, albedo, shadow, gi, glossy... |
+| **Utility** | depth, normal, position, motion, uv, ao, fresnel, curvature, opacity... |
+| **Data** | id, mask, matte, object, material, puzzle, holdout... |
+| **Cryptomatte** | crypto* |
+| **Custom** | everything else |
 
 ## Installation
 
-1. Copy the built plugin to `~/.nuke/` or any directory on your `NUKE_PATH`:
+### C++ Plugin (recommended)
 
-```bat
-:: Windows
-copy build\Release\VisualLayerInspector.dll "%USERPROFILE%\.nuke\"
+The C++ version uses the NDK Row API for direct pixel access — no temp files, no render nodes.
 
-# Linux/macOS
-cp build/VisualLayerInspector.so ~/.nuke/
+1. Clone this repo or download the latest release
+2. Run `build_all.bat` from a Visual Studio Developer Command Prompt
+3. Restart Nuke
+
+The build script compiles for both Nuke 14 and 16 and installs to `~/.nuke/VisualLayerInspector/`.
+
+### Python Version
+
+The Python version works without compiling but uses nuke.execute() to render thumbnails via temporary JPEG files.
+
+1. Copy `src/visual_layer_inspector.py` to `~/.nuke/`
+2. Add to your `menu.py`:
+
+```python
+import visual_layer_inspector
+nuke.menu('Nuke').addCommand(
+    'Tools/Visual Layer Inspector',
+    'visual_layer_inspector.launch()',
+    'ctrl+shift+l'
+)
 ```
 
-2. *(Optional)* Copy `menu.py` to `~/.nuke/` to add the node to the toolbar.
-
-3. Restart Nuke.
+3. Restart Nuke
 
 ## Usage
 
-1. Tab-search for **VisualLayerInspector** and create the node
-2. Connect a multi-layer source (EXR with AOVs, CryptoMatte, etc.) to its input
-3. Open the Properties panel and click **Launch Inspector**
-4. Click any thumbnail to switch the Viewer to that layer
-5. Use the filter bar to search, the slider to resize, and **Update Frame** to refresh
+### C++ Version
+1. Create a **VisualLayerInspector** node (found under Filter)
+2. Connect it to any node with multiple layers (e.g. a Read node with a multi-layer EXR)
+3. Open the node properties and click **Launch Inspector**
 
-## Branch Strategy
+### Python Version
+1. Select a node with layers
+2. Run **Tools > Visual Layer Inspector** from the menu (or `Ctrl+Shift+L`)
 
-| Branch | Nuke Version | Qt Version |
-|---|---|---|
-| `main` | 16.x | Qt 6 |
-| `nuke/14.1` | 14.1.x | Qt 5 |
+## Building from Source
 
-The source code in `src/` is identical across branches. Only `CMakeLists.txt` and `README.md` differ.
+### Requirements
 
-## Troubleshooting
+- Visual Studio 2022 (Community or higher)
+- Nuke 14 and/or Nuke 16 NDK
 
-**"plugin did not define VisualLayerInspector"** — Full clean rebuild (`rd /s /q build`).
+### Build
 
-**Thumbnails are black** — View the input in the Viewer at least once before launching.
+Open a **Developer Command Prompt for VS 2022** and run:
 
-**Qt not found (Windows)** — Pass both `-DQT5_SDK_DIR` and `-DCMAKE_PREFIX_PATH`.
+```
+cd C:\dev\VisualLayerInspector
+build_all.bat
+```
 
-**Python not found** — Pass `-DPython3_ROOT_DIR="C:/Python39"`.
+The script:
+- Checks out the `nuke/14.1` branch, compiles the Nuke 14 DLL
+- Checks out the `main` branch, compiles the Nuke 16 DLL
+- Copies both DLLs and the Python file to `~/.nuke/`
 
-## License
+### Branch Structure
 
-MIT License — see [LICENSE](LICENSE).
+| Branch | Purpose |
+|---|---|
+| `main` | Nuke 16 source (Qt6, Python 3.11+) |
+| `nuke/14.1` | Nuke 14 source (Qt5, Python 3.9) |
+
+Both branches share the same source files. The build system handles API differences automatically.
+
+## File Structure
+
+```
+src/
+├── InspectorDialog.h       # Qt dialog — UI, grid, sorting, slider
+├── InspectorDialog.cpp     # Dialog implementation
+├── VisualLayerInspector.cpp # Nuke NDK plugin — Op, Row API renderer
+└── visual_layer_inspector.py # Python version (standalone)
+```
+
+## Changelog
+
+### v11
+- Modeless window — Nuke stays fully interactive, Viewer updates live when clicking layers
+
+### v10
+- Sort dropdown with 5 modes (A→Z, Z→A, Type Group, Channel Count, Original Order)
+- Auto-categorisation of layers into Lighting, Utility, Data, Cryptomatte, Custom
+- Group headers in Type Group sort mode
+- Channel count badges on each layer button
+
+### v9
+- Smooth thumbnail size slider — resizes in-place during drag, reflows grid on release
+
+### v8
+- Auto-scan and auto-generate — dialog opens, scans layers, starts rendering automatically
+- No manual button clicks needed
+
+### v7
+- User-driven workflow with exec() modal dialog
+- Fixed UI freeze caused by knob_changed blocking Qt event loop
+- Version number visible in title bar, badge, and footer
+
+## Technical Notes
+
+### Why modeless with show()?
+
+Nuke's `knob_changed` callback blocks the Qt event loop. Earlier versions used `exec()` to create a nested event loop (which solved the freeze), but this made the Viewer unresponsive to layer changes. v11 uses `show()` with heap allocation and `WA_DeleteOnClose` — the dialog constructor does zero Nuke work, and `showEvent` defers all initialization via `singleShot(0)` so `knob_changed` returns immediately.
+
+### Row API with strided fetching (C++)
+
+The C++ renderer reads pixels directly from the input Iop using the Row API, sampling every Nth row and column to produce thumbnails. This avoids creating temporary Nuke nodes or writing files to disk, and keeps memory usage minimal (~240 rows per thumbnail regardless of source resolution).
+
+### Progressive rendering
+
+Thumbnails render one at a time via `QTimer::singleShot(1)` chaining. Each render completes, updates its button icon, then yields back to the event loop before starting the next one. This keeps the UI responsive throughout — you can filter, resize, stop, or click layers while rendering continues in the background.
 
 ## Credits
 
-Created by Marten Blumen.
+Created by **Marten Blumen**
+
+## License
+
+MIT.
