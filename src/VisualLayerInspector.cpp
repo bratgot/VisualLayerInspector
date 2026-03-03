@@ -1,10 +1,8 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 11
+// Version 18.1
 //
-// v18: Modeless window — show() instead of exec().
-//      knob_changed returns immediately, Nuke stays interactive.
-//      Dialog is heap-allocated with WA_DeleteOnClose.
+// v18.1: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -45,7 +43,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v18\n\n"
+    "Visual Layer Inspector v18.1\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -244,7 +242,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  •  v18</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  \xe2\x80\xa2  v18.1</i>");
     }
 
     int knob_changed(Knob* k) override
@@ -257,7 +255,6 @@ public:
     }
 
 private:
-    // QPointer tracks dialog lifetime — auto-nulls when dialog is destroyed
     QPointer<InspectorDialog> inspectorDialog_;
 
     struct PreparedInput {
@@ -348,7 +345,7 @@ private:
 
         // Heap-allocate — dialog lives beyond knob_changed return
         auto* dlg = new InspectorDialog(prepare, onLayerSelected, nullptr);
-        dlg->setAttribute(Qt::WA_DeleteOnClose);  // auto-delete when closed
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
         inspectorDialog_ = dlg;
 
         // show() returns immediately — knob_changed exits, Nuke resumes
