@@ -7,6 +7,8 @@ VisualLayerInspector/
 ├── nuke14/VisualLayerInspector.dll   ← C++ plugin for Nuke 14.x
 ├── nuke16/VisualLayerInspector.dll   ← C++ plugin for Nuke 16.x
 ├── visual_layer_inspector.py         ← Python version (any Nuke)
+├── init.py                           ← Nuke startup config
+├── menu.py                           ← Nuke menu entry
 ├── install.bat                       ← Automatic installer
 └── INSTALL.md                        ← This file
 ```
@@ -19,23 +21,17 @@ Double-click **install.bat** — it copies everything to the right place automat
 
 ### C++ plugin (recommended — faster thumbnails)
 
-1. Copy the correct DLL for your Nuke version:
-   - **Nuke 14.x:** Copy `nuke14\VisualLayerInspector.dll` to your `.nuke` folder
-   - **Nuke 16.x:** Copy `nuke16\VisualLayerInspector.dll` to your `.nuke` folder
-   - Your `.nuke` folder is typically `C:\Users\<YourName>\.nuke\`
+1. Create a folder: `C:\Users\<YourName>\.nuke\VisualLayerInspector\`
+   - Copy `nuke14\VisualLayerInspector.dll` into a `nuke14` subfolder
+   - Copy `nuke16\VisualLayerInspector.dll` into a `nuke16` subfolder
 
-2. Add to your `init.py` (create it in `.nuke` if it doesn't exist):
-   ```python
-   nuke.pluginAddPath(".")
-   ```
+2. Copy the included `init.py` to your `.nuke` folder (if you don't already have one).
+   It auto-detects your Nuke version and loads the correct DLL.
 
-3. Add to your `menu.py` (create it in `.nuke` if it doesn't exist):
+3. Copy the included `menu.py` to your `.nuke` folder, or if you already have one, add this line:
    ```python
-   nuke.menu("Nuke").addCommand(
-       "Filter/Visual Layer Inspector",
-       "nuke.createNode('VisualLayerInspector')",
-       ""
-   )
+   import visual_layer_inspector
+   nuke.menu("Nuke").addCommand("Filter/Visual Layer Inspector (Python)", "visual_layer_inspector.launch()", "")
    ```
 
 4. Restart Nuke. The node appears under **Filter > VisualLayerInspector**.
@@ -44,15 +40,8 @@ Double-click **install.bat** — it copies everything to the right place automat
 
 1. Copy `visual_layer_inspector.py` to your `.nuke` folder.
 
-2. Add to your `menu.py`:
-   ```python
-   import visual_layer_inspector
-   nuke.menu("Nuke").addCommand(
-       "Filter/Visual Layer Inspector (Python)",
-       "visual_layer_inspector.launch()",
-       ""
-   )
-   ```
+2. If you didn't already do so above, copy the included `menu.py` to your `.nuke` folder,
+   or add the menu entry to your existing `menu.py`.
 
 3. Restart Nuke.
 

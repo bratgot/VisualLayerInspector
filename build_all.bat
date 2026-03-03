@@ -168,11 +168,13 @@ if exist dist rd /s /q dist
 mkdir "%PKG_DIR%\nuke14" 2>nul
 mkdir "%PKG_DIR%\nuke16" 2>nul
 
-copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke14\" >nul
-copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke16\" >nul
-copy /Y "python\visual_layer_inspector.py" "%PKG_DIR%\" >nul
-copy /Y "INSTALL.md" "%PKG_DIR%\" >nul
-copy /Y "install.bat" "%PKG_DIR%\" >nul
+copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke14\"
+copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke16\"
+copy /Y "python\visual_layer_inspector.py" "%PKG_DIR%\"
+copy /Y "dist_files\init.py" "%PKG_DIR%\"
+copy /Y "dist_files\menu.py" "%PKG_DIR%\"
+copy /Y "INSTALL.md" "%PKG_DIR%\"
+copy /Y "install.bat" "%PKG_DIR%\"
 
 :: Create zip using PowerShell
 powershell -NoProfile -Command "Compress-Archive -Path 'dist\VisualLayerInspector' -DestinationPath 'dist\VisualLayerInspector_v18.3.zip' -Force"
