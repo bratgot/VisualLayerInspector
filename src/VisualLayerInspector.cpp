@@ -2,7 +2,7 @@
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
 // Version 11
 //
-// v17: Modeless window — show() instead of exec().
+// v18: Modeless window — show() instead of exec().
 //      knob_changed returns immediately, Nuke stays interactive.
 //      Dialog is heap-allocated with WA_DeleteOnClose.
 //
@@ -45,7 +45,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v17\n\n"
+    "Visual Layer Inspector v18\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -244,7 +244,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  •  v17</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  •  v18</i>");
     }
 
     int knob_changed(Knob* k) override
