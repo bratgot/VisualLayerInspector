@@ -2,10 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v11
+// InspectorDialog.h — Visual Layer Inspector v12
 //
-// v11: Modeless window — Nuke stays interactive, Viewer updates live.
-//      show() from knob_changed, all Nuke work deferred via showEvent.
+// v12: Smooth grid reflow during slider drag — columns update in real time.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -34,7 +33,7 @@
 #include <vector>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v11";
+static constexpr const char* kVLI_Version = "v12";
 
 // ============================================================================
 //  Callback types
@@ -131,6 +130,7 @@ private:
     int           thumbWidth_    = 200;
     int           thumbHeight_   = 120;
     SortMode      sortMode_      = SortMode::TypeGroup;
+    int           lastColumnCount_ = 0;
 
     static constexpr int   kButtonPadding    = 10;
     static constexpr int   kMinThumbSize     = 80;
