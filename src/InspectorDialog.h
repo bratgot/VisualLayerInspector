@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v15
+// InspectorDialog.h — Visual Layer Inspector v16
 //
-// v15: Category filter checkboxes — toggle Lighting, Utility, Data,
+// v16: Category filter checkboxes — toggle Lighting, Utility, Data,
 //      Cryptomatte, Custom groups on/off independently.
 //
 // Created by Marten Blumen
@@ -36,7 +36,7 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v15";
+static constexpr const char* kVLI_Version = "v16";
 
 // ============================================================================
 //  Callback types
@@ -163,6 +163,8 @@ private:
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
     QWidget*       categoryRow_    = nullptr;
+    QPushButton*   catAllBtn_      = nullptr;
+    QLabel*        emptyLabel_     = nullptr;
 
     std::map<LayerCategory, QCheckBox*> categoryChecks_;
 
