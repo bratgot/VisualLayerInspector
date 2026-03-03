@@ -1,7 +1,7 @@
 """
-Visual Layer Inspector v18.2 — Python version
+Visual Layer Inspector v18.3 — Python version
 
-v18.2: Auto-init fallback timer, direct beginRendering call (no nested QTimer).
+v18.3: Auto-init fallback timer, direct beginRendering call (no nested QTimer).
 
 Created by Marten Blumen
 """
@@ -15,7 +15,7 @@ try:
 except ImportError:
     from PySide6 import QtWidgets, QtCore, QtGui
 
-VLI_VERSION = "v18.2"
+VLI_VERSION = "v18.3"
 
 # Global reference to keep dialog alive (prevents GC)
 _inspector_dialog = None
@@ -493,6 +493,29 @@ class VisualLayerPicker(QtWidgets.QDialog):
             self._layers.reverse()
 
     # ================================================================
+    #  Placeholder thumbnail
+    # ================================================================
+    def _make_placeholder(self):
+        img = QtGui.QImage(self._thumb_w, self._thumb_h, QtGui.QImage.Format_RGB32)
+        img.fill(QtGui.QColor(34, 34, 34))
+
+        p = QtGui.QPainter(img)
+        p.setPen(QtGui.QColor(80, 80, 80))
+        p.drawRect(0, 0, self._thumb_w - 1, self._thumb_h - 1)
+
+        f = p.font()
+        f.setPixelSize(max(10, self._thumb_h // 8))
+        p.setFont(f)
+        p.setPen(QtGui.QColor(100, 100, 100))
+        p.drawText(
+            QtCore.QRect(0, 0, self._thumb_w, self._thumb_h),
+            QtCore.Qt.AlignCenter,
+            u"Generating\u2026"
+        )
+        p.end()
+        return QtGui.QPixmap.fromImage(img)
+
+    # ================================================================
     #  Grid
     # ================================================================
     def _build_grid(self):
@@ -571,7 +594,8 @@ class VisualLayerPicker(QtWidgets.QDialog):
                     QtCore.Qt.SmoothTransformation
                 )
                 btn.setIcon(QtGui.QIcon(scaled))
-            # No placeholder pixmap — avoids expensive rescaling during slider drag
+            else:
+                btn.setIcon(QtGui.QIcon(self._make_placeholder()))
 
             btn.clicked.connect(lambda checked=False, l=name: self._set_layer(l))
 
@@ -886,36 +910,14 @@ class VisualLayerPicker(QtWidgets.QDialog):
         new_cols = max(1, (vp.width() if vp else 1100) // btn_w)
 
         if new_cols != self._last_col_count:
-            # Column count changed — lightweight reposition (no widget creation)
             self._reflow_grid_fast(new_cols)
 
-        # Always resize existing buttons (fast — no layout changes)
+        # v18.3: geometry only during drag — pixmaps rebuild on release
         btn_h = self._thumb_h + 40
-        icon_size = QtCore.QSize(self._thumb_w, self._thumb_h)
-
-        # Skip all pixmap work if no thumbnails exist
-        any_thumbs = bool(self._thumb_pixmaps)
-
         for le in self._layers:
             btn = le.get('button')
-            if not btn:
-                continue
-            btn.setFixedSize(btn_w, btn_h)
-
-            if not any_thumbs:
-                continue  # just resize geometry, no icon update
-
-            btn.setIconSize(icon_size)
-
-            pm = self._thumb_pixmaps.get(le['name'])
-            if pm and not pm.isNull():
-                scaled = pm.scaled(
-                    self._thumb_w, self._thumb_h,
-                    QtCore.Qt.KeepAspectRatio,
-                    QtCore.Qt.FastTransformation
-                )
-                btn.setIcon(QtGui.QIcon(scaled))
-            # Skip placeholder — avoids expensive rescaling
+            if btn:
+                btn.setFixedSize(btn_w, btn_h)
 
     def _reflow_grid_fast(self, new_cols):
         """Lightweight reflow: reposition existing buttons without destroying them.
@@ -948,12 +950,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
     def _on_size_release(self):
         if not self._scanned:
             return
-        if self._thumb_pixmaps:
-            # Thumbnails exist — full rebuild for SmoothTransformation quality
-            self._build_grid()
-        else:
-            # No thumbnails — just reflow, skip expensive rebuild
-            self._reorder_grid_fast()
+        self._build_grid()
 
     # ================================================================
     #  UI callbacks
