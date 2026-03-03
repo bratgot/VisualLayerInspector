@@ -359,6 +359,11 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     mainLayout->addLayout(footerLayout);
 
     controlsWidget_->setVisible(true);
+
+    // Fallback: ensure autoInit fires even if showEvent doesn't trigger
+    // reliably (common with modeless dialogs in Nuke's Qt event loop).
+    // The scanned_ guard inside autoInit prevents double execution.
+    QTimer::singleShot(100, this, &InspectorDialog::autoInit);
 }
 
 // ============================================================================
