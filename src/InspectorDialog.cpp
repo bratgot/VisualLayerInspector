@@ -1,6 +1,8 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector for Nuke 16
-// Version 7
+// InspectorDialog.cpp — Visual Layer Inspector v8
+//
+// Auto workflow: showEvent → scan → grid → progressive render.
+// User can Stop/Resume/Filter/Resize/Close at any time.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -10,7 +12,7 @@
 #include <algorithm>
 
 // ============================================================================
-//  Constructor — instant, zero Nuke work
+//  Constructor — builds full UI, zero Nuke calls
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
@@ -32,38 +34,27 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     title->setStyleSheet("font-size: 20px; font-weight: bold; color: #eeeeee;");
     titleRow->addWidget(title);
     titleRow->addStretch();
-    versionLabel_ = new QLabel(kVLI_Version);
-    versionLabel_->setStyleSheet(
+    auto* versionLabel = new QLabel(kVLI_Version);
+    versionLabel->setStyleSheet(
         "font-size: 14px; font-weight: bold; color: #66bb66; "
         "background-color: #224422; padding: 3px 10px; border-radius: 3px;");
-    titleRow->addWidget(versionLabel_);
+    titleRow->addWidget(versionLabel);
     mainLayout->addLayout(titleRow);
 
     auto* desc = new QLabel(
-        "<b>Step 1:</b> Click <b>Scan Layers</b> to read channels from the input. "
-        "<b>Step 2:</b> Click any layer name, or click <b>Generate Thumbnails</b> "
-        "to preview them all.");
+        "Click any layer name to view it in the Viewer. "
+        "Thumbnails generate automatically — use <b>Stop</b> to pause.");
     desc->setStyleSheet("font-size: 13px; color: #bbbbbb; margin-bottom: 5px;");
     desc->setWordWrap(true);
     mainLayout->addWidget(desc);
 
-    // --- Big Scan button ---
-    scanBtn_ = new QPushButton("Scan Layers");
-    scanBtn_->setFixedHeight(45);
-    scanBtn_->setStyleSheet(
-        "QPushButton { font-size: 16px; font-weight: bold; "
-        "background-color: #336633; color: #ffffff; border-radius: 5px; }"
-        "QPushButton:hover { background-color: #448844; }");
-    connect(scanBtn_, &QPushButton::clicked, this, &InspectorDialog::onScanLayers);
-    mainLayout->addWidget(scanBtn_);
-
-    // --- Controls (hidden until scanned) ---
+    // --- Controls ---
     controlsWidget_ = new QWidget;
     controlsWidget_->setVisible(false);
     auto* controlsLayout = new QVBoxLayout(controlsWidget_);
     controlsLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Row: filter + size
+    // Row 1: filter + size
     auto* row1 = new QHBoxLayout;
 
     filterEdit_ = new QLineEdit;
@@ -90,20 +81,15 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     controlsLayout->addLayout(row1);
 
-    // Row: generate + proxy + stop
+    // Row 2: stop + proxy + regenerate
     auto* row2 = new QHBoxLayout;
 
-    generateBtn_ = new QPushButton("Generate Thumbnails");
-    generateBtn_->setFixedHeight(35);
-    generateBtn_->setMinimumWidth(180);
-    generateBtn_->setStyleSheet(
-        "QPushButton { font-size: 14px; font-weight: bold; "
-        "background-color: #335577; color: #ffffff; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #446688; }"
-        "QPushButton:disabled { background-color: #333333; color: #666666; }");
-    connect(generateBtn_, &QPushButton::clicked,
-            this,         &InspectorDialog::onGenerateThumbnails);
-    row2->addWidget(generateBtn_);
+    stopBtn_ = new QPushButton("Stop");
+    stopBtn_->setFixedHeight(30);
+    stopBtn_->setMinimumWidth(90);
+    stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+    connect(stopBtn_, &QPushButton::clicked, this, &InspectorDialog::onStopResume);
+    row2->addWidget(stopBtn_);
 
     row2->addSpacing(10);
     row2->addWidget(new QLabel("Proxy:"));
@@ -121,13 +107,15 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     row2->addSpacing(10);
 
-    stopBtn_ = new QPushButton("Stop");
-    stopBtn_->setFixedHeight(30);
-    stopBtn_->setMinimumWidth(80);
-    stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
-    stopBtn_->setEnabled(false);
-    connect(stopBtn_, &QPushButton::clicked, this, &InspectorDialog::onStopResume);
-    row2->addWidget(stopBtn_);
+    regenBtn_ = new QPushButton("Regenerate");
+    regenBtn_->setFixedHeight(30);
+    regenBtn_->setMinimumWidth(110);
+    regenBtn_->setStyleSheet(
+        "QPushButton { font-weight: bold; background-color: #335533; }"
+        "QPushButton:disabled { background-color: #333333; color: #666666; }");
+    regenBtn_->setEnabled(false);
+    connect(regenBtn_, &QPushButton::clicked, this, &InspectorDialog::onRegenerate);
+    row2->addWidget(regenBtn_);
 
     row2->addStretch();
 
@@ -135,18 +123,17 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     // Progress
     progressBar_ = new QProgressBar;
-    progressBar_->setRange(0, 1);
-    progressBar_->setValue(0);
+    progressBar_->setRange(0, 0);   // indeterminate until scan done
     progressBar_->setTextVisible(true);
+    progressBar_->setFormat("Scanning layers...");
     progressBar_->setFixedHeight(18);
-    progressBar_->setFormat("Ready");
     progressBar_->setStyleSheet(
         "QProgressBar { border: 1px solid #444; border-radius: 3px; "
         "background: #222; text-align: center; color: #ccc; font-size: 11px; }"
         "QProgressBar::chunk { background: #446644; }");
     controlsLayout->addWidget(progressBar_);
 
-    statusLabel_ = new QLabel("Click a layer name to view it, or Generate Thumbnails.");
+    statusLabel_ = new QLabel("Scanning layers...");
     statusLabel_->setStyleSheet("font-size: 11px; color: #999999;");
     controlsLayout->addWidget(statusLabel_);
 
@@ -176,17 +163,31 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     footerLayout->addWidget(closeBtn);
 
     mainLayout->addLayout(footerLayout);
+
+    // Show controls immediately (with indeterminate progress)
+    controlsWidget_->setVisible(true);
 }
 
 // ============================================================================
-//  Scan Layers
+//  showEvent → auto-init inside exec()'s event loop
 // ============================================================================
-void InspectorDialog::onScanLayers()
+void InspectorDialog::showEvent(QShowEvent* event)
 {
-    if (!prepare_) return;
+    QDialog::showEvent(event);
+    if (!showFired_) {
+        showFired_ = true;
+        QTimer::singleShot(0, this, &InspectorDialog::autoInit);
+    }
+}
 
-    scanBtn_->setEnabled(false);
-    scanBtn_->setText("Scanning...");
+// ============================================================================
+//  Auto init — scan layers then start rendering
+// ============================================================================
+void InspectorDialog::autoInit()
+{
+    if (scanned_ || !prepare_) return;
+
+    statusLabel_->setText("Reading EXR headers (first open may be slow)...");
     setCursor(Qt::WaitCursor);
     repaint();
 
@@ -195,11 +196,11 @@ void InspectorDialog::onScanLayers()
     setCursor(Qt::ArrowCursor);
 
     if (!result.valid) {
-        scanBtn_->setEnabled(true);
-        scanBtn_->setText("Scan Layers (retry)");
-        controlsWidget_->setVisible(true);
         statusLabel_->setText(
             QString("Error: %1").arg(QString::fromStdString(result.errorMsg)));
+        progressBar_->setRange(0, 1);
+        progressBar_->setValue(0);
+        progressBar_->setFormat("Failed");
         return;
     }
 
@@ -208,34 +209,31 @@ void InspectorDialog::onScanLayers()
     renderOne_ = std::move(result.renderOne);
     scanned_ = true;
 
-    scanBtn_->setVisible(false);
-    controlsWidget_->setVisible(true);
-
     buildGrid();
 
     statusLabel_->setText(
-        QString("Found %1 layers — click a name to view, or Generate Thumbnails.")
+        QString("Found %1 layers — generating thumbnails...")
             .arg(layerNames_.size()));
+
+    // Auto-start rendering
+    QTimer::singleShot(1, this, [this]() { beginRendering(); });
 }
 
 // ============================================================================
-//  Generate Thumbnails
+//  Begin rendering
 // ============================================================================
-void InspectorDialog::onGenerateThumbnails()
+void InspectorDialog::beginRendering()
 {
     if (!scanned_ || layerNames_.empty()) return;
-
-    thumbnailImages_.assign(layerNames_.size(), QImage());
-    buildGrid();
 
     rendering_ = true;
     nextRenderIdx_ = 0;
     perfTimer_.start();
 
-    generateBtn_->setEnabled(false);
-    stopBtn_->setEnabled(true);
     stopBtn_->setText("Stop");
     stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+    stopBtn_->setEnabled(true);
+    regenBtn_->setEnabled(false);
 
     updateProgress();
     scheduleNextRender();
@@ -283,7 +281,7 @@ void InspectorDialog::renderNextThumbnail()
 void InspectorDialog::stopRendering()
 {
     rendering_ = false;
-    generateBtn_->setEnabled(true);
+    regenBtn_->setEnabled(true);
 
     int done = nextRenderIdx_;
     int total = static_cast<int>(layerNames_.size());
@@ -293,10 +291,10 @@ void InspectorDialog::stopRendering()
         statusLabel_->setText(
             QString("Done — %1 layers in %2 s").arg(total).arg(elapsed, 0, 'f', 2));
         stopBtn_->setEnabled(false);
-        generateBtn_->setText("Regenerate Thumbnails");
     } else {
         statusLabel_->setText(
-            QString("Paused — %1 / %2 rendered").arg(done).arg(total));
+            QString("Paused — %1 / %2 rendered  (click any layer name to view it)")
+                .arg(done).arg(total));
         stopBtn_->setText("Resume");
         stopBtn_->setStyleSheet("font-weight: bold; background-color: #335544;");
     }
@@ -308,12 +306,21 @@ void InspectorDialog::onStopResume()
         stopRendering();
     } else if (scanned_ && nextRenderIdx_ < static_cast<int>(layerNames_.size())) {
         rendering_ = true;
-        generateBtn_->setEnabled(false);
+        regenBtn_->setEnabled(false);
         stopBtn_->setText("Stop");
         stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
         stopBtn_->setEnabled(true);
         scheduleNextRender();
     }
+}
+
+void InspectorDialog::onRegenerate()
+{
+    if (!scanned_ || layerNames_.empty()) return;
+    stopRendering();
+    thumbnailImages_.assign(layerNames_.size(), QImage());
+    buildGrid();
+    beginRendering();
 }
 
 // ============================================================================
@@ -438,5 +445,10 @@ void InspectorDialog::onThumbnailSizeChanged(int value)
 
 void InspectorDialog::onProxyChanged(int comboIndex)
 {
-    proxyStep_ = proxyCombo_->itemData(comboIndex).toInt();
+    int newStep = proxyCombo_->itemData(comboIndex).toInt();
+    if (newStep == proxyStep_) return;
+    proxyStep_ = newStep;
+    if (!scanned_) return;
+    // Re-render with new proxy
+    onRegenerate();
 }
