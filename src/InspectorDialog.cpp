@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v18.1
+// InspectorDialog.cpp — Visual Layer Inspector v18.2
 //
-// v18.1: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+// v18.2: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
 //        Buttons without thumbnails use iconSize(0,0) — zero rescale cost.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
@@ -421,15 +421,13 @@ void InspectorDialog::autoInit()
     updateCategoryCounts();
     buildGrid();
 
-    QTimer::singleShot(1, this, [this]() {
-        if (autoThumbCheck_ && autoThumbCheck_->isChecked())
-            beginRendering();
-        else {
-            regenBtn_->setEnabled(true);
-            statusLabel_->setText(QString("Found %1 layers — Auto Thumbnails off, click Regenerate to render.")
-                                 .arg(layers_.size()));
-        }
-    });
+    if (autoThumbCheck_ && autoThumbCheck_->isChecked())
+        beginRendering();
+    else {
+        regenBtn_->setEnabled(true);
+        statusLabel_->setText(QString("Found %1 layers — Auto Thumbnails off, click Regenerate to render.")
+                             .arg(layers_.size()));
+    }
 }
 
 // ============================================================================
@@ -654,7 +652,7 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
-    // --- v18.1: batch all layout changes into ONE repaint ---
+    // --- v18.2: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -747,7 +745,7 @@ void InspectorDialog::resizeButtonsInPlace()
         if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
     }
 
-    // --- v18.1: batch all layout changes into ONE repaint ---
+    // --- v18.2: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -774,7 +772,7 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
-    // --- v18.1: batch all layout changes into ONE repaint ---
+    // --- v18.2: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -826,7 +824,7 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
-    // --- v18.1: batch all layout changes into ONE repaint ---
+    // --- v18.2: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
     if (container) container->setUpdatesEnabled(false);
 

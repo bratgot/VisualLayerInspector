@@ -43,7 +43,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v18.1\n\n"
+    "Visual Layer Inspector v18.2\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -242,7 +242,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  \xe2\x80\xa2  v18.1</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  \xe2\x80\xa2  v18.2</i>");
     }
 
     int knob_changed(Knob* k) override

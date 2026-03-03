@@ -1,8 +1,7 @@
 """
-Visual Layer Inspector v18 — Python version
+Visual Layer Inspector v18.2 — Python version
 
-v18: Auto Thumbnails checkbox, layout fix — buttons stored per-layer and reordered without
-     destruction. All button + empty state message.
+v18.2: Auto-init fallback timer, direct beginRendering call (no nested QTimer).
 
 Created by Marten Blumen
 """
@@ -421,7 +420,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
         )
 
         if self._auto_thumb_check.isChecked():
-            QtCore.QTimer.singleShot(1, self._begin_rendering)
+            self._begin_rendering()
         else:
             self._regen_btn.setEnabled(True)
             self._progress.setRange(0, 1)

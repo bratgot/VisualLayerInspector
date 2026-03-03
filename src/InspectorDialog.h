@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v18.1
+// InspectorDialog.h — Visual Layer Inspector v18.2
 //
-// v18.1: Batch all layout changes via setUpdatesEnabled(false/true) —
+// v18.2: Batch all layout changes via setUpdatesEnabled(false/true) —
 //        slider drag, reflow, sort, and buildGrid all batch into ONE repaint.
 //        Buttons with no thumbnail use iconSize(0,0) to avoid rescale cost.
 //      without destroying/recreating. All button for category checkboxes.
