@@ -471,6 +471,11 @@ void InspectorDialog::renderNextThumbnail()
 {
     if (!rendering_) return;
     const int total = static_cast<int>(layers_.size());
+
+    // Skip layers that already have thumbnails (e.g. after re-sort)
+    while (nextRenderIdx_ < total && !layers_[nextRenderIdx_].thumbnail.isNull())
+        ++nextRenderIdx_;
+
     if (nextRenderIdx_ >= total) { stopRendering(); return; }
 
     auto& entry = layers_[nextRenderIdx_];
@@ -539,14 +544,27 @@ void InspectorDialog::applySortAndRebuild()
     if (rendering_) stopRendering();
     sortLayers();
     buildGrid();
-    if (wasRendering || nextRenderIdx_ < static_cast<int>(layers_.size())) {
-        nextRenderIdx_ = 0;
-        for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
-            if (layers_[i].thumbnail.isNull()) { nextRenderIdx_ = i; break; }
-            nextRenderIdx_ = i + 1;
-        }
-        if (nextRenderIdx_ < static_cast<int>(layers_.size()))
-            beginRendering();
+
+    // Check if any thumbnails still need rendering
+    int firstUnrendered = static_cast<int>(layers_.size());
+    for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
+        if (layers_[i].thumbnail.isNull()) { firstUnrendered = i; break; }
+    }
+
+    if (firstUnrendered < static_cast<int>(layers_.size()) && (wasRendering || nextRenderIdx_ < static_cast<int>(layers_.size()))) {
+        // Resume from where unrendered layers start
+        nextRenderIdx_ = firstUnrendered;
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        updateProgress();
+        scheduleNextRender();
+    } else {
+        // All thumbnails already exist — just update progress
+        nextRenderIdx_ = static_cast<int>(layers_.size());
+        updateProgress();
     }
 }
 
