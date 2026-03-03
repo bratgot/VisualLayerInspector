@@ -1008,11 +1008,6 @@ class VisualLayerPicker(QtWidgets.QDialog):
         if new_factor == self._proxy_factor:
             return
         self._proxy_factor = new_factor
-        if not self._scanned:
-            return
-        if not self._auto_thumb_check.isChecked():
-            return  # respect checkbox
-        self._on_regenerate()
 
     def closeEvent(self, event):
         global _inspector_dialog
