@@ -2,9 +2,10 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v12
+// InspectorDialog.h — Visual Layer Inspector v15
 //
-// v12: Smooth grid reflow during slider drag — columns update in real time.
+// v15: Category filter checkboxes — toggle Lighting, Utility, Data,
+//      Cryptomatte, Custom groups on/off independently.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -18,6 +19,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QToolButton>
+#include <QCheckBox>
 #include <QSlider>
 #include <QComboBox>
 #include <QProgressBar>
@@ -31,9 +33,10 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v12";
+static constexpr const char* kVLI_Version = "v15";
 
 // ============================================================================
 //  Callback types
@@ -75,7 +78,7 @@ struct LayerEntry {
 //  Sort modes
 // ============================================================================
 enum class SortMode : int {
-    Alphabetical_AZ = 0, Alphabetical_ZA, TypeGroup, ChannelCount, OriginalOrder
+    Alphabetical = 0, TypeGroup, ChannelCount, OriginalOrder
 };
 
 // ============================================================================
@@ -103,17 +106,23 @@ private slots:
     void onThumbnailSizeRelease();
     void onProxyChanged(int comboIndex);
     void onSortChanged(int comboIndex);
+    void onReverseToggle();
+    void onCategoryToggle();
 
 private:
     void buildGrid();
     void resizeButtonsInPlace();
+    void reflowGridFast();
     void sortLayers();
+    void applySortAndRebuild();
+    void applyVisibility();
     int  computeColumns() const;
     void beginRendering();
     void scheduleNextRender();
     void stopRendering();
     void updateProgress();
     void updateButtonThumbnail(int displayIndex);
+    void updateCategoryCounts();
 
     PrepareCallback           prepare_;
     LayerCallback             onLayerSelected_;
@@ -130,6 +139,7 @@ private:
     int           thumbWidth_    = 200;
     int           thumbHeight_   = 120;
     SortMode      sortMode_      = SortMode::TypeGroup;
+    bool          sortReversed_  = false;
     int           lastColumnCount_ = 0;
 
     static constexpr int   kButtonPadding    = 10;
@@ -140,6 +150,7 @@ private:
 
     QPushButton*   stopBtn_        = nullptr;
     QPushButton*   regenBtn_       = nullptr;
+    QPushButton*   reverseBtn_     = nullptr;
     QScrollArea*   scrollArea_     = nullptr;
     QWidget*       container_      = nullptr;
     QGridLayout*   grid_           = nullptr;
@@ -151,12 +162,16 @@ private:
     QProgressBar*  progressBar_    = nullptr;
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
+    QWidget*       categoryRow_    = nullptr;
+
+    std::map<LayerCategory, QCheckBox*> categoryChecks_;
 
     struct ButtonEntry {
         int            layerIdx;
         QToolButton*   button;
     };
     std::vector<ButtonEntry> buttons_;
+    std::vector<QLabel*>     groupHeaders_;
 };
 
 #endif // INSPECTOR_DIALOG_H
