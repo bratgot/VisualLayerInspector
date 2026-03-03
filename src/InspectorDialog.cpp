@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v15
+// InspectorDialog.cpp — Visual Layer Inspector v16
 //
-// v15: Category filter checkboxes — toggle groups on/off.
+// v16: Category filter checkboxes — toggle groups on/off.
 //      Checkbox row appears below sort controls. Each checkbox shows count.
 //
 // Created by Marten Blumen
@@ -249,6 +249,24 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     }
 
     catLayout->addStretch();
+
+    catAllBtn_ = new QPushButton("All");
+    catAllBtn_->setFixedSize(40, 22);
+    catAllBtn_->setStyleSheet(
+        "QPushButton { font-size: 11px; background-color: #444444; "
+        "border: 1px solid #555555; border-radius: 3px; }"
+        "QPushButton:hover { background-color: #555555; }");
+    catAllBtn_->setToolTip("Check / uncheck all categories");
+    connect(catAllBtn_, &QPushButton::clicked, this, [this]() {
+        // If all checked, uncheck all; otherwise check all
+        bool allChecked = true;
+        for (auto& kv : categoryChecks_)
+            if (!kv.second->isChecked()) { allChecked = false; break; }
+        for (auto& kv : categoryChecks_)
+            kv.second->setChecked(!allChecked);
+    });
+    catLayout->addWidget(catAllBtn_);
+
     controlsLayout->addWidget(categoryRow_);
 
     // Row 3: stop + proxy + regenerate
@@ -314,6 +332,14 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     grid_ = new QGridLayout(container_);
     scrollArea_->setWidget(container_);
     mainLayout->addWidget(scrollArea_, 1);
+
+    // Empty state label (hidden by default)
+    emptyLabel_ = new QLabel("All category checkboxes are unchecked \xe2\x80\x94 tick at least one to display layers.");
+    emptyLabel_->setAlignment(Qt::AlignCenter);
+    emptyLabel_->setStyleSheet("font-size: 14px; color: #888888; padding: 40px;");
+    emptyLabel_->setWordWrap(true);
+    emptyLabel_->setVisible(false);
+    mainLayout->addWidget(emptyLabel_);
 
     // --- Footer ---
     auto* footerLayout = new QHBoxLayout;
@@ -557,27 +583,31 @@ void InspectorDialog::applyVisibility()
     const std::string textFilter = filterEdit_
         ? toLower(filterEdit_->text().toStdString()) : std::string();
 
+    bool anyChecked = false;
+    for (auto& kv : categoryChecks_)
+        if (kv.second->isChecked()) { anyChecked = true; break; }
+
+    bool anyVisible = false;
     for (auto& be : buttons_) {
         const auto& le = layers_[be.layerIdx];
 
-        // Category check
         bool catVisible = true;
         auto it = categoryChecks_.find(le.category);
         if (it != categoryChecks_.end())
             catVisible = it->second->isChecked();
 
-        // Text filter check
         bool textVisible = textFilter.empty()
             || (toLower(le.name).find(textFilter) != std::string::npos);
 
-        be.button->setVisible(catVisible && textVisible);
+        bool vis = catVisible && textVisible;
+        be.button->setVisible(vis);
+        if (vis) anyVisible = true;
     }
 
-    // Also hide/show group headers if their category is unchecked
-    // Headers are rebuilt in buildGrid, but we can hide them here
-    // by checking the first visible button after each header.
-    // Simpler: just rebuild the grid for correct layout.
-    // For performance, we only toggle button visibility above.
+    // Show empty-state message when no categories are checked
+    bool showEmpty = !anyChecked && scanned_;
+    emptyLabel_->setVisible(showEmpty);
+    scrollArea_->setVisible(!showEmpty);
 }
 
 // ============================================================================
