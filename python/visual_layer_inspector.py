@@ -497,22 +497,14 @@ class VisualLayerPicker(QtWidgets.QDialog):
     # ================================================================
     def _make_placeholder(self):
         img = QtGui.QImage(self._thumb_w, self._thumb_h, QtGui.QImage.Format_RGB32)
-        img.fill(QtGui.QColor(34, 34, 34))
-
-        p = QtGui.QPainter(img)
-        p.setPen(QtGui.QColor(80, 80, 80))
-        p.drawRect(0, 0, self._thumb_w - 1, self._thumb_h - 1)
-
-        f = p.font()
-        f.setPixelSize(max(10, self._thumb_h // 8))
-        p.setFont(f)
-        p.setPen(QtGui.QColor(100, 100, 100))
-        p.drawText(
-            QtCore.QRect(0, 0, self._thumb_w, self._thumb_h),
-            QtCore.Qt.AlignCenter,
-            u"Generating\u2026"
-        )
-        p.end()
+        img.fill(QtGui.QColor(40, 40, 40))
+        border = QtGui.QColor(60, 60, 60).rgb()
+        for x in range(self._thumb_w):
+            img.setPixel(x, 0, border)
+            img.setPixel(x, self._thumb_h - 1, border)
+        for y in range(self._thumb_h):
+            img.setPixel(0, y, border)
+            img.setPixel(self._thumb_w - 1, y, border)
         return QtGui.QPixmap.fromImage(img)
 
     # ================================================================
@@ -950,7 +942,26 @@ class VisualLayerPicker(QtWidgets.QDialog):
     def _on_size_release(self):
         if not self._scanned:
             return
-        self._build_grid()
+
+        # v18.3: rescale icons in place — no grid rebuild
+        icon_size = QtCore.QSize(self._thumb_w, self._thumb_h)
+        placeholder = self._make_placeholder()
+
+        for le in self._layers:
+            btn = le.get('button')
+            if not btn:
+                continue
+            btn.setIconSize(icon_size)
+            pm = self._thumb_pixmaps.get(le['name'])
+            if pm and not pm.isNull():
+                scaled = pm.scaled(
+                    self._thumb_w, self._thumb_h,
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation
+                )
+                btn.setIcon(QtGui.QIcon(scaled))
+            else:
+                btn.setIcon(QtGui.QIcon(placeholder))
 
     # ================================================================
     #  UI callbacks
