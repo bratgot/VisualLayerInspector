@@ -1,8 +1,8 @@
 """
-Visual Layer Inspector v11 — Python version
+Visual Layer Inspector v17 — Python version
 
-v11: Modeless window — Nuke stays fully interactive, Viewer updates live.
-     show() instead of exec_(), global reference prevents garbage collection.
+v17: Instant sort — buttons stored per-layer and reordered without
+     destruction. All button + empty state message.
 
 Created by Marten Blumen
 """
@@ -16,7 +16,7 @@ try:
 except ImportError:
     from PySide6 import QtWidgets, QtCore, QtGui
 
-VLI_VERSION = "v11"
+VLI_VERSION = "v17"
 
 # Global reference to keep dialog alive (prevents GC)
 _inspector_dialog = None
@@ -80,11 +80,10 @@ def classify_layer(name):
 # ============================================================================
 #  Sort modes
 # ============================================================================
-SORT_AZ       = 0
-SORT_ZA       = 1
-SORT_TYPE     = 2
-SORT_CHANNELS = 3
-SORT_ORIGINAL = 4
+SORT_ALPHA    = 0
+SORT_TYPE     = 1
+SORT_CHANNELS = 2
+SORT_ORIGINAL = 3
 
 
 class VisualLayerPicker(QtWidgets.QDialog):
@@ -118,6 +117,15 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._next_idx = 0
         self._render_start = 0.0
         self._sort_mode = SORT_TYPE
+        self._sort_reversed = False
+        self._category_visible = {
+            CATEGORY_LIGHTING:    True,
+            CATEGORY_UTILITY:     True,
+            CATEGORY_DATA:        True,
+            CATEGORY_CRYPTOMATTE: True,
+            CATEGORY_CUSTOM:      True,
+        }
+        self._category_checks = {}
 
         self._layers = []
         self._channels_map = {}
@@ -125,6 +133,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._buttons = []
         self._temp_dir = ""
         self._nuke_nodes = []
+        self._last_col_count = 0
 
         # ─── UI ───
         self.main_layout = QtWidgets.QVBoxLayout(self)
@@ -167,12 +176,11 @@ class VisualLayerPicker(QtWidgets.QDialog):
         row1.addWidget(QtWidgets.QLabel("Sort:"))
 
         self._sort_combo = QtWidgets.QComboBox()
-        self._sort_combo.addItem(u"A \u2192 Z",     SORT_AZ)
-        self._sort_combo.addItem(u"Z \u2192 A",     SORT_ZA)
+        self._sort_combo.addItem("Alphabetical",    SORT_ALPHA)
         self._sort_combo.addItem("Type Group",       SORT_TYPE)
         self._sort_combo.addItem("Channel Count",    SORT_CHANNELS)
         self._sort_combo.addItem("Original Order",   SORT_ORIGINAL)
-        self._sort_combo.setCurrentIndex(2)
+        self._sort_combo.setCurrentIndex(1)  # default: Type Group
         self._sort_combo.setToolTip(
             "Type Group auto-categorises layers:\n"
             "  Lighting - diffuse, specular, reflection, emission, sss...\n"
@@ -183,6 +191,18 @@ class VisualLayerPicker(QtWidgets.QDialog):
         )
         self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         row1.addWidget(self._sort_combo)
+
+        # Reverse toggle button
+        self._reverse_btn = QtWidgets.QPushButton(u"\u2191")  # ↑ ascending
+        self._reverse_btn.setFixedSize(28, 28)
+        self._reverse_btn.setToolTip("Reverse sort order")
+        self._reverse_btn.setStyleSheet(
+            "QPushButton { font-size: 16px; font-weight: bold; background-color: #444444; "
+            "border: 1px solid #555555; border-radius: 3px; padding: 0px; }"
+            "QPushButton:hover { background-color: #555555; }"
+        )
+        self._reverse_btn.clicked.connect(self._on_reverse_toggle)
+        row1.addWidget(self._reverse_btn)
 
         row1.addSpacing(10)
         row1.addWidget(QtWidgets.QLabel("Size:"))
@@ -200,6 +220,45 @@ class VisualLayerPicker(QtWidgets.QDialog):
         row1.addWidget(self._size_label)
 
         controls.addLayout(row1)
+
+        # Category filter checkboxes
+        cat_row = QtWidgets.QHBoxLayout()
+        cat_label = QtWidgets.QLabel("Show:")
+        cat_label.setStyleSheet("font-size: 12px; color: #999999;")
+        cat_row.addWidget(cat_label)
+
+        cat_styles = [
+            (CATEGORY_LIGHTING,    "#ddaa44"),
+            (CATEGORY_UTILITY,     "#44aadd"),
+            (CATEGORY_DATA,        "#aa66cc"),
+            (CATEGORY_CRYPTOMATTE, "#66cc66"),
+            (CATEGORY_CUSTOM,      "#999999"),
+        ]
+        for cat_id, colour in cat_styles:
+            cb = QtWidgets.QCheckBox(CATEGORY_NAMES[cat_id])
+            cb.setChecked(True)
+            cb.setStyleSheet(
+                "QCheckBox {{ font-size: 12px; color: {}; spacing: 4px; }}"
+                "QCheckBox::indicator {{ width: 14px; height: 14px; }}".format(colour)
+            )
+            cb.toggled.connect(self._on_category_toggle)
+            cat_row.addWidget(cb)
+            self._category_checks[cat_id] = cb
+
+        cat_row.addStretch()
+
+        self._cat_all_btn = QtWidgets.QPushButton("All")
+        self._cat_all_btn.setFixedSize(40, 22)
+        self._cat_all_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; background-color: #444444; "
+            "border: 1px solid #555555; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #555555; }"
+        )
+        self._cat_all_btn.setToolTip("Check / uncheck all categories")
+        self._cat_all_btn.clicked.connect(self._on_cat_all)
+        cat_row.addWidget(self._cat_all_btn)
+
+        controls.addLayout(cat_row)
 
         # Row 2: stop + proxy + regenerate
         row2 = QtWidgets.QHBoxLayout()
@@ -266,6 +325,16 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self.scroll.setWidget(self.container)
         self.main_layout.addWidget(self.scroll, 1)
 
+        # Empty state label (hidden by default)
+        self._empty_label = QtWidgets.QLabel(
+            u"All category checkboxes are unchecked \u2014 tick at least one to display layers."
+        )
+        self._empty_label.setAlignment(QtCore.Qt.AlignCenter)
+        self._empty_label.setStyleSheet("font-size: 14px; color: #888888; padding: 40px;")
+        self._empty_label.setWordWrap(True)
+        self._empty_label.setVisible(False)
+        self.main_layout.addWidget(self._empty_label)
+
         # Footer
         footer = QtWidgets.QHBoxLayout()
         credit = QtWidgets.QLabel(
@@ -319,6 +388,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
 
         self._sort_layers()
         self._build_grid()
+        self._update_category_counts()
 
         cats = {}
         for le in self._layers:
@@ -389,10 +459,8 @@ class VisualLayerPicker(QtWidgets.QDialog):
     # ================================================================
     def _sort_layers(self):
         mode = self._sort_mode
-        if mode == SORT_AZ:
+        if mode == SORT_ALPHA:
             self._layers.sort(key=lambda x: x['name'].lower())
-        elif mode == SORT_ZA:
-            self._layers.sort(key=lambda x: x['name'].lower(), reverse=True)
         elif mode == SORT_TYPE:
             self._layers.sort(key=lambda x: (x['category'], x['name'].lower()))
         elif mode == SORT_CHANNELS:
@@ -400,13 +468,20 @@ class VisualLayerPicker(QtWidgets.QDialog):
         elif mode == SORT_ORIGINAL:
             self._layers.sort(key=lambda x: x['original_index'])
 
+        if self._sort_reversed:
+            self._layers.reverse()
+
     # ================================================================
     #  Grid
     # ================================================================
     def _build_grid(self):
-        for _, btn in self._buttons:
-            btn.setParent(None)
-            btn.deleteLater()
+        # Destroy existing buttons
+        for le in self._layers:
+            btn = le.get('button')
+            if btn:
+                btn.setParent(None)
+                btn.deleteLater()
+                le['button'] = None
         self._buttons = []
 
         while self.grid.count():
@@ -420,6 +495,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
         btn_h = self._thumb_h + 40
         vp = self.scroll.viewport()
         cols = max(1, (vp.width() if vp else 1100) // btn_w)
+        self._last_col_count = cols
 
         filt = self.filter_le.text().lower() if self.filter_le else ""
         show_groups = (self._sort_mode == SORT_TYPE)
@@ -427,18 +503,32 @@ class VisualLayerPicker(QtWidgets.QDialog):
         grid_idx = 0
 
         for i, le in enumerate(self._layers):
-            if show_groups and (i == 0 or le['category'] != last_cat):
-                if grid_idx % cols != 0:
-                    grid_idx += cols - (grid_idx % cols)
-                header = QtWidgets.QLabel(
-                    u"\u2014 {} \u2014".format(CATEGORY_NAMES[le['category']])
-                )
-                header.setStyleSheet(
-                    "font-size: 13px; font-weight: bold; color: #88aacc; "
-                    "padding: 8px 0 2px 5px;"
-                )
-                self.grid.addWidget(header, grid_idx // cols, 0, 1, cols)
-                grid_idx += cols
+            cat_ok = self._category_visible.get(le['category'], True)
+            text_ok = (not filt) or (filt in le['name'].lower())
+            visible = cat_ok and text_ok
+
+            if show_groups and visible and (i == 0 or le['category'] != last_cat):
+                any_visible = False
+                for j in range(i, len(self._layers)):
+                    if self._layers[j]['category'] != le['category']:
+                        break
+                    tv = (not filt) or (filt in self._layers[j]['name'].lower())
+                    if tv:
+                        any_visible = True
+                        break
+
+                if any_visible and cat_ok:
+                    if grid_idx % cols != 0:
+                        grid_idx += cols - (grid_idx % cols)
+                    header = QtWidgets.QLabel(
+                        u"\u2014 {} \u2014".format(CATEGORY_NAMES[le['category']])
+                    )
+                    header.setStyleSheet(
+                        "font-size: 13px; font-weight: bold; color: #88aacc; "
+                        "padding: 8px 0 2px 5px;"
+                    )
+                    self.grid.addWidget(header, grid_idx // cols, 0, 1, cols)
+                    grid_idx += cols
                 last_cat = le['category']
 
             name = le['name']
@@ -466,12 +556,14 @@ class VisualLayerPicker(QtWidgets.QDialog):
 
             btn.clicked.connect(lambda checked=False, l=name: self._set_layer(l))
 
-            visible = (not filt) or (filt in name.lower())
             btn.setVisible(visible)
+            le['button'] = btn
 
-            self.grid.addWidget(btn, grid_idx // cols, grid_idx % cols)
+            if visible:
+                self.grid.addWidget(btn, grid_idx // cols, grid_idx % cols)
+                grid_idx += 1
+
             self._buttons.append((i, btn))
-            grid_idx += 1
 
         self._progress.setRange(0, len(self._layers))
         self._progress.setValue(self._next_idx)
@@ -504,6 +596,12 @@ class VisualLayerPicker(QtWidgets.QDialog):
             return
 
         total = len(self._layers)
+
+        # Skip layers that already have thumbnails (e.g. after re-sort)
+        while self._next_idx < total and self._layers[self._next_idx]['name'] in self._thumb_pixmaps:
+            self._next_idx += 1
+            self._update_progress()
+
         if self._next_idx >= total:
             self._stop_rendering()
             return
@@ -536,15 +634,15 @@ class VisualLayerPicker(QtWidgets.QDialog):
             pm = QtGui.QPixmap(thumb_path)
             self._thumb_pixmaps[layer] = pm
 
-            for layer_idx, btn in self._buttons:
-                if layer_idx == self._next_idx:
-                    scaled = pm.scaled(
-                        self._thumb_w, self._thumb_h,
-                        QtCore.Qt.KeepAspectRatio,
-                        QtCore.Qt.SmoothTransformation
-                    )
-                    btn.setIcon(QtGui.QIcon(scaled))
-                    break
+            # Update button directly via layer reference
+            btn = le.get('button')
+            if btn:
+                scaled = pm.scaled(
+                    self._thumb_w, self._thumb_h,
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation
+                )
+                btn.setIcon(QtGui.QIcon(scaled))
 
         self._next_idx += 1
         self._update_progress()
@@ -648,6 +746,90 @@ class VisualLayerPicker(QtWidgets.QDialog):
     # ================================================================
     #  Sort changed
     # ================================================================
+    def _apply_sort_and_rebuild(self):
+        """Instant sort — reposition existing buttons, zero creation."""
+        was_rendering = self._rendering
+        if self._rendering:
+            self._stop_rendering()
+
+        self._sort_layers()
+        self._reorder_grid_fast()
+
+        # Resume rendering only unfinished thumbnails
+        if was_rendering:
+            self._next_idx = 0
+            self._rendering = True
+            self._stop_btn.setText("Stop")
+            self._stop_btn.setStyleSheet("font-weight: bold; background-color: #554433;")
+            self._stop_btn.setEnabled(True)
+            self._regen_btn.setEnabled(False)
+            self._create_render_nodes()
+            self._update_progress()
+            self._schedule_next()
+
+    def _reorder_grid_fast(self):
+        """Reposition existing buttons in new sorted order. No destruction."""
+        # Remove everything from grid without destroying
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            w = item.widget()
+            if w:
+                # Only delete group header labels, not buttons
+                is_button = False
+                for le in self._layers:
+                    if le.get('button') is w:
+                        is_button = True
+                        break
+                if not is_button:
+                    w.hide()
+                    w.deleteLater()
+
+        vp = self.scroll.viewport()
+        btn_w = self._thumb_w + 10
+        cols = max(1, (vp.width() if vp else 1100) // btn_w)
+        self._last_col_count = cols
+
+        filt = self.filter_le.text().lower() if self.filter_le else ""
+        show_groups = (self._sort_mode == SORT_TYPE)
+        last_cat = -1
+        grid_idx = 0
+
+        # Rebuild self._buttons in new order
+        self._buttons = []
+
+        for i, le in enumerate(self._layers):
+            btn = le.get('button')
+            if not btn:
+                continue
+
+            cat_ok = self._category_visible.get(le['category'], True)
+            text_ok = (not filt) or (filt in le['name'].lower())
+            visible = cat_ok and text_ok
+            btn.setVisible(visible)
+
+            if not visible:
+                self._buttons.append((i, btn))
+                continue
+
+            # Group header
+            if show_groups and (grid_idx == 0 or le['category'] != last_cat):
+                if grid_idx % cols != 0:
+                    grid_idx += cols - (grid_idx % cols)
+                header = QtWidgets.QLabel(
+                    u"\u2014 {} \u2014".format(CATEGORY_NAMES[le['category']])
+                )
+                header.setStyleSheet(
+                    "font-size: 13px; font-weight: bold; color: #88aacc; "
+                    "padding: 8px 0 2px 5px;"
+                )
+                self.grid.addWidget(header, grid_idx // cols, 0, 1, cols)
+                grid_idx += cols
+                last_cat = le['category']
+
+            self.grid.addWidget(btn, grid_idx // cols, grid_idx % cols)
+            self._buttons.append((i, btn))
+            grid_idx += 1
+
     def _on_sort_changed(self, combo_index):
         new_mode = self._sort_combo.itemData(combo_index)
         if new_mode == self._sort_mode:
@@ -655,23 +837,18 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._sort_mode = new_mode
         if not self._scanned:
             return
+        self._apply_sort_and_rebuild()
 
-        was_rendering = self._rendering
-        if self._rendering:
-            self._stop_rendering()
-
-        self._sort_layers()
-        self._build_grid()
-
-        if was_rendering or self._next_idx < len(self._layers):
-            self._next_idx = 0
-            for i, le in enumerate(self._layers):
-                if le['name'] not in self._thumb_pixmaps:
-                    self._next_idx = i
-                    break
-                self._next_idx = i + 1
-            if self._next_idx < len(self._layers):
-                self._begin_rendering()
+    def _on_reverse_toggle(self):
+        self._sort_reversed = not self._sort_reversed
+        self._reverse_btn.setText(u"\u2193" if self._sort_reversed else u"\u2191")
+        self._reverse_btn.setToolTip(
+            "Sort: descending (click to reverse)" if self._sort_reversed
+            else "Sort: ascending (click to reverse)"
+        )
+        if not self._scanned:
+            return
+        self._apply_sort_and_rebuild()
 
     # ================================================================
     #  Smooth slider
@@ -681,19 +858,30 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._thumb_h = int(value * self._ASPECT)
         self._size_label.setText("{}px".format(value))
 
-        if not self._scanned or not self._buttons:
+        if not self._scanned or not self._layers:
             return
 
+        # Check if column count changed
         btn_w = self._thumb_w + 10
+        vp = self.scroll.viewport()
+        new_cols = max(1, (vp.width() if vp else 1100) // btn_w)
+
+        if new_cols != self._last_col_count:
+            # Column count changed — lightweight reposition (no widget creation)
+            self._reflow_grid_fast(new_cols)
+
+        # Always resize existing buttons (fast — no layout changes)
         btn_h = self._thumb_h + 40
         icon_size = QtCore.QSize(self._thumb_w, self._thumb_h)
 
-        for layer_idx, btn in self._buttons:
+        for le in self._layers:
+            btn = le.get('button')
+            if not btn:
+                continue
             btn.setFixedSize(btn_w, btn_h)
             btn.setIconSize(icon_size)
 
-            name = self._layers[layer_idx]['name']
-            pm = self._thumb_pixmaps.get(name)
+            pm = self._thumb_pixmaps.get(le['name'])
             if pm and not pm.isNull():
                 scaled = pm.scaled(
                     self._thumb_w, self._thumb_h,
@@ -706,6 +894,34 @@ class VisualLayerPicker(QtWidgets.QDialog):
                 placeholder.fill(QtGui.QColor(40, 40, 40))
                 btn.setIcon(QtGui.QIcon(placeholder))
 
+    def _reflow_grid_fast(self, new_cols):
+        """Lightweight reflow: reposition existing buttons without destroying them.
+        Group headers are hidden during drag — they return on release."""
+        self._last_col_count = new_cols
+
+        # Build set of active buttons for fast lookup
+        btn_set = set()
+        for le in self._layers:
+            btn = le.get('button')
+            if btn:
+                btn_set.add(btn)
+
+        # Remove everything from grid without deleting buttons
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            w = item.widget()
+            if w and w not in btn_set:
+                w.hide()
+                w.deleteLater()
+
+        # Re-add only visible buttons at new positions (no headers during drag)
+        grid_idx = 0
+        for le in self._layers:
+            btn = le.get('button')
+            if btn and btn.isVisible():
+                self.grid.addWidget(btn, grid_idx // new_cols, grid_idx % new_cols)
+                grid_idx += 1
+
     def _on_size_release(self):
         if self._scanned:
             self._build_grid()
@@ -714,10 +930,44 @@ class VisualLayerPicker(QtWidgets.QDialog):
     #  UI callbacks
     # ================================================================
     def _filter_layers(self, text):
-        filt = text.lower()
-        for layer_idx, btn in self._buttons:
-            name = self._layers[layer_idx]['name']
-            btn.setVisible(filt in name.lower())
+        self._apply_visibility()
+
+    def _on_category_toggle(self, checked):
+        for cat_id, cb in self._category_checks.items():
+            self._category_visible[cat_id] = cb.isChecked()
+        if self._scanned:
+            self._apply_visibility()
+
+    def _on_cat_all(self):
+        all_checked = all(cb.isChecked() for cb in self._category_checks.values())
+        for cb in self._category_checks.values():
+            cb.setChecked(not all_checked)
+
+    def _apply_visibility(self):
+        filt = self.filter_le.text().lower() if self.filter_le else ""
+        any_checked = any(cb.isChecked() for cb in self._category_checks.values())
+
+        for le in self._layers:
+            btn = le.get('button')
+            if not btn:
+                continue
+            cat_ok = self._category_visible.get(le['category'], True)
+            text_ok = (not filt) or (filt in le['name'].lower())
+            btn.setVisible(cat_ok and text_ok)
+
+        # Show empty state when no categories checked
+        show_empty = not any_checked and self._scanned
+        self._empty_label.setVisible(show_empty)
+        self.scroll.setVisible(not show_empty)
+
+    def _update_category_counts(self):
+        counts = {}
+        for le in self._layers:
+            c = le['category']
+            counts[c] = counts.get(c, 0) + 1
+        for cat_id, cb in self._category_checks.items():
+            n = counts.get(cat_id, 0)
+            cb.setText("{} ({})".format(CATEGORY_NAMES[cat_id], n))
 
     def _set_layer(self, layer_name):
         v = nuke.activeViewer()

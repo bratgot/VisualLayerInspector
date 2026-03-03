@@ -1,8 +1,9 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v16
+// InspectorDialog.cpp — Visual Layer Inspector v17
 //
-// v16: Category filter checkboxes — toggle groups on/off.
-//      Checkbox row appears below sort controls. Each checkbox shows count.
+// v17: Instant sort — buttons are stored in LayerEntry and move with
+//      their data. reorderGridFast() just repositions, zero creation.
+//      All button for category checkboxes. Empty state message.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -218,15 +219,12 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     controlsLayout->addLayout(row1);
 
     // Row 2: category checkboxes
-    categoryRow_ = new QWidget;
-    auto* catLayout = new QHBoxLayout(categoryRow_);
-    catLayout->setContentsMargins(0, 2, 0, 2);
+    auto* catLayout = new QHBoxLayout;
 
     auto* catLabel = new QLabel("Show:");
     catLabel->setStyleSheet("font-size: 12px; color: #999999;");
     catLayout->addWidget(catLabel);
 
-    // Category colour coding
     struct CatStyle { LayerCategory cat; const char* colour; };
     CatStyle styles[] = {
         { LayerCategory::Lighting,    "#ddaa44" },
@@ -248,26 +246,20 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
         categoryChecks_[s.cat] = cb;
     }
 
-    catLayout->addStretch();
+    catLayout->addSpacing(6);
 
     catAllBtn_ = new QPushButton("All");
     catAllBtn_->setFixedSize(40, 22);
     catAllBtn_->setStyleSheet(
         "QPushButton { font-size: 11px; background-color: #444444; "
-        "border: 1px solid #555555; border-radius: 3px; }"
+        "border: 1px solid #555555; border-radius: 3px; color: #cccccc; }"
         "QPushButton:hover { background-color: #555555; }");
     catAllBtn_->setToolTip("Check / uncheck all categories");
-    connect(catAllBtn_, &QPushButton::clicked, this, [this]() {
-        // If all checked, uncheck all; otherwise check all
-        bool allChecked = true;
-        for (auto& kv : categoryChecks_)
-            if (!kv.second->isChecked()) { allChecked = false; break; }
-        for (auto& kv : categoryChecks_)
-            kv.second->setChecked(!allChecked);
-    });
+    connect(catAllBtn_, &QPushButton::clicked, this, &InspectorDialog::onCatAll);
     catLayout->addWidget(catAllBtn_);
 
-    controlsLayout->addWidget(categoryRow_);
+    catLayout->addStretch();
+    controlsLayout->addLayout(catLayout);
 
     // Row 3: stop + proxy + regenerate
     auto* row3 = new QHBoxLayout;
@@ -333,8 +325,9 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     scrollArea_->setWidget(container_);
     mainLayout->addWidget(scrollArea_, 1);
 
-    // Empty state label (hidden by default)
-    emptyLabel_ = new QLabel("All category checkboxes are unchecked \xe2\x80\x94 tick at least one to display layers.");
+    // Empty state label
+    emptyLabel_ = new QLabel(
+        "All category checkboxes are unchecked \xe2\x80\x94 tick at least one to display layers.");
     emptyLabel_->setAlignment(Qt::AlignCenter);
     emptyLabel_->setStyleSheet("font-size: 14px; color: #888888; padding: 40px;");
     emptyLabel_->setWordWrap(true);
@@ -385,7 +378,6 @@ void InspectorDialog::autoInit()
     repaint();
 
     PrepareResult result = prepare_();
-
     setCursor(Qt::ArrowCursor);
 
     if (!result.valid) {
@@ -408,6 +400,7 @@ void InspectorDialog::autoInit()
         le.channelCount = (i < static_cast<int>(result.channelCounts.size()))
                               ? result.channelCounts[i] : 0;
         le.category = classifyLayer(le.name);
+        le.button = nullptr;
         layers_.push_back(std::move(le));
     }
 
@@ -420,7 +413,7 @@ void InspectorDialog::autoInit()
 }
 
 // ============================================================================
-//  Category counts → update checkbox labels
+//  Category counts
 // ============================================================================
 void InspectorDialog::updateCategoryCounts()
 {
@@ -434,7 +427,6 @@ void InspectorDialog::updateCategoryCounts()
             QString("%1 (%2)").arg(layerCategoryName(kv.first)).arg(n));
     }
 
-    // Status line
     int total = static_cast<int>(layers_.size());
     QStringList parts;
     for (auto& kv : counts)
@@ -472,7 +464,7 @@ void InspectorDialog::renderNextThumbnail()
     if (!rendering_) return;
     const int total = static_cast<int>(layers_.size());
 
-    // Skip layers that already have thumbnails (e.g. after re-sort)
+    // Skip layers that already have thumbnails
     while (nextRenderIdx_ < total && !layers_[nextRenderIdx_].thumbnail.isNull())
         ++nextRenderIdx_;
 
@@ -482,7 +474,13 @@ void InspectorDialog::renderNextThumbnail()
     if (renderOne_) {
         QImage img = renderOne_(entry.prepareIndex, proxyStep_);
         entry.thumbnail = std::move(img);
-        updateButtonThumbnail(nextRenderIdx_);
+        // Update the persistent button icon
+        if (entry.button && !entry.thumbnail.isNull()) {
+            QPixmap pm = QPixmap::fromImage(
+                entry.thumbnail.scaled(thumbWidth_, thumbHeight_,
+                                       Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            entry.button->setIcon(QIcon(pm));
+        }
     }
 
     ++nextRenderIdx_;
@@ -536,45 +534,31 @@ void InspectorDialog::onRegenerate()
 }
 
 // ============================================================================
-//  Sort / Reverse / Category toggle
+//  Sort / Reverse — INSTANT via reorderGridFast
 // ============================================================================
-void InspectorDialog::applySortAndRebuild()
-{
-    bool wasRendering = rendering_;
-    if (rendering_) stopRendering();
-    sortLayers();
-    buildGrid();
-
-    // Check if any thumbnails still need rendering
-    int firstUnrendered = static_cast<int>(layers_.size());
-    for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
-        if (layers_[i].thumbnail.isNull()) { firstUnrendered = i; break; }
-    }
-
-    if (firstUnrendered < static_cast<int>(layers_.size()) && (wasRendering || nextRenderIdx_ < static_cast<int>(layers_.size()))) {
-        // Resume from where unrendered layers start
-        nextRenderIdx_ = firstUnrendered;
-        rendering_ = true;
-        stopBtn_->setText("Stop");
-        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
-        stopBtn_->setEnabled(true);
-        regenBtn_->setEnabled(false);
-        updateProgress();
-        scheduleNextRender();
-    } else {
-        // All thumbnails already exist — just update progress
-        nextRenderIdx_ = static_cast<int>(layers_.size());
-        updateProgress();
-    }
-}
-
 void InspectorDialog::onSortChanged(int comboIndex)
 {
     SortMode newMode = static_cast<SortMode>(sortCombo_->itemData(comboIndex).toInt());
     if (newMode == sortMode_) return;
     sortMode_ = newMode;
     if (!scanned_) return;
-    applySortAndRebuild();
+
+    bool wasRendering = rendering_;
+    if (rendering_) stopRendering();
+
+    sortLayers();
+    reorderGridFast();
+
+    // Resume rendering unfinished thumbnails
+    if (wasRendering) {
+        nextRenderIdx_ = 0;
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        scheduleNextRender();
+    }
 }
 
 void InspectorDialog::onReverseToggle()
@@ -584,7 +568,22 @@ void InspectorDialog::onReverseToggle()
     reverseBtn_->setToolTip(sortReversed_ ? "Sort: descending (click to reverse)"
                                           : "Sort: ascending (click to reverse)");
     if (!scanned_) return;
-    applySortAndRebuild();
+
+    bool wasRendering = rendering_;
+    if (rendering_) stopRendering();
+
+    sortLayers();
+    reorderGridFast();
+
+    if (wasRendering) {
+        nextRenderIdx_ = 0;
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        scheduleNextRender();
+    }
 }
 
 void InspectorDialog::onCategoryToggle()
@@ -593,8 +592,17 @@ void InspectorDialog::onCategoryToggle()
     applyVisibility();
 }
 
+void InspectorDialog::onCatAll()
+{
+    bool allChecked = true;
+    for (auto& kv : categoryChecks_)
+        if (!kv.second->isChecked()) { allChecked = false; break; }
+    for (auto& kv : categoryChecks_)
+        kv.second->setChecked(!allChecked);
+}
+
 // ============================================================================
-//  Visibility — combines text filter + category checkboxes
+//  Visibility — text filter + category checkboxes + empty state
 // ============================================================================
 void InspectorDialog::applyVisibility()
 {
@@ -605,27 +613,83 @@ void InspectorDialog::applyVisibility()
     for (auto& kv : categoryChecks_)
         if (kv.second->isChecked()) { anyChecked = true; break; }
 
-    bool anyVisible = false;
-    for (auto& be : buttons_) {
-        const auto& le = layers_[be.layerIdx];
+    for (auto& le : layers_) {
+        if (!le.button) continue;
+        bool catVisible = true;
+        auto it = categoryChecks_.find(le.category);
+        if (it != categoryChecks_.end())
+            catVisible = it->second->isChecked();
+        bool textVisible = textFilter.empty()
+            || (toLower(le.name).find(textFilter) != std::string::npos);
+        le.button->setVisible(catVisible && textVisible);
+    }
+
+    bool showEmpty = !anyChecked && scanned_;
+    emptyLabel_->setVisible(showEmpty);
+    scrollArea_->setVisible(!showEmpty);
+}
+
+// ============================================================================
+//  reorderGridFast — INSTANT sort: repositions existing buttons, no creation
+// ============================================================================
+void InspectorDialog::reorderGridFast()
+{
+    // Delete old group headers
+    for (auto* h : groupHeaders_) {
+        grid_->removeWidget(h);
+        h->hide();
+        h->deleteLater();
+    }
+    groupHeaders_.clear();
+
+    // Detach all buttons from grid (widgets stay alive)
+    for (auto& le : layers_) {
+        if (le.button)
+            grid_->removeWidget(le.button);
+    }
+
+    // Re-add buttons in new sorted order + group headers
+    const int cols = computeColumns();
+    lastColumnCount_ = cols;
+    bool showGroupHeaders = (sortMode_ == SortMode::TypeGroup);
+
+    const std::string textFilter = filterEdit_
+        ? toLower(filterEdit_->text().toStdString()) : std::string();
+
+    LayerCategory lastCat = LayerCategory::Custom;
+    int gridIdx = 0;
+
+    for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
+        auto& le = layers_[i];
+        if (!le.button) continue;
 
         bool catVisible = true;
         auto it = categoryChecks_.find(le.category);
         if (it != categoryChecks_.end())
             catVisible = it->second->isChecked();
-
         bool textVisible = textFilter.empty()
             || (toLower(le.name).find(textFilter) != std::string::npos);
+        bool visible = catVisible && textVisible;
+        le.button->setVisible(visible);
 
-        bool vis = catVisible && textVisible;
-        be.button->setVisible(vis);
-        if (vis) anyVisible = true;
+        if (!visible) continue;
+
+        // Group header
+        if (showGroupHeaders && (gridIdx == 0 || le.category != lastCat)) {
+            if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
+            auto* header = new QLabel(
+                QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
+            header->setStyleSheet(
+                "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
+            grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
+            groupHeaders_.push_back(header);
+            gridIdx += cols;
+            lastCat = le.category;
+        }
+
+        grid_->addWidget(le.button, gridIdx / cols, gridIdx % cols);
+        ++gridIdx;
     }
-
-    // Show empty-state message when no categories are checked
-    bool showEmpty = !anyChecked && scanned_;
-    emptyLabel_->setVisible(showEmpty);
-    scrollArea_->setVisible(!showEmpty);
 }
 
 // ============================================================================
@@ -636,7 +700,7 @@ void InspectorDialog::onThumbnailSizeDrag(int value)
     thumbWidth_  = value;
     thumbHeight_ = static_cast<int>(value * kAspectRatio);
     sizeLabel_->setText(QString::number(value) + "px");
-    if (!scanned_ || buttons_.empty()) return;
+    if (!scanned_) return;
 
     int newCols = computeColumns();
     if (newCols != lastColumnCount_) {
@@ -650,21 +714,19 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const QSize iconSize(thumbWidth_, thumbHeight_);
-    for (auto& be : buttons_) {
-        auto* btn = be.button;
-        btn->setFixedSize(btnWidth, btnHeight);
-        btn->setIconSize(iconSize);
-        const auto& le = layers_[be.layerIdx];
+    for (auto& le : layers_) {
+        if (!le.button) continue;
+        le.button->setFixedSize(btnWidth, btnHeight);
+        le.button->setIconSize(iconSize);
         if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                    Qt::KeepAspectRatio,
-                                    Qt::FastTransformation));
-            btn->setIcon(QIcon(pm));
+                                    Qt::KeepAspectRatio, Qt::FastTransformation));
+            le.button->setIcon(QIcon(pm));
         } else {
             QPixmap placeholder(thumbWidth_, thumbHeight_);
             placeholder.fill(QColor(40, 40, 40));
-            btn->setIcon(QIcon(placeholder));
+            le.button->setIcon(QIcon(placeholder));
         }
     }
 }
@@ -681,14 +743,14 @@ void InspectorDialog::reflowGridFast()
     }
     groupHeaders_.clear();
 
-    for (auto& be : buttons_) {
-        grid_->removeWidget(be.button);
+    for (auto& le : layers_) {
+        if (le.button) grid_->removeWidget(le.button);
     }
 
     int gridIdx = 0;
-    for (auto& be : buttons_) {
-        if (be.button->isVisible()) {
-            grid_->addWidget(be.button, gridIdx / cols, gridIdx % cols);
+    for (auto& le : layers_) {
+        if (le.button && le.button->isVisible()) {
+            grid_->addWidget(le.button, gridIdx / cols, gridIdx % cols);
             ++gridIdx;
         }
     }
@@ -700,7 +762,7 @@ void InspectorDialog::onThumbnailSizeRelease()
 }
 
 // ============================================================================
-//  Grid
+//  Grid — full rebuild (init, release, regenerate)
 // ============================================================================
 int InspectorDialog::computeColumns() const
 {
@@ -710,8 +772,10 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
-    for (auto& be : buttons_) { be.button->setParent(nullptr); delete be.button; }
-    buttons_.clear();
+    // Destroy existing buttons
+    for (auto& le : layers_) {
+        if (le.button) { le.button->setParent(nullptr); delete le.button; le.button = nullptr; }
+    }
 
     for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
@@ -728,49 +792,35 @@ void InspectorDialog::buildGrid()
     lastColumnCount_ = cols;
     const QString textFilter = filterEdit_ ? filterEdit_->text().toLower() : QString();
 
-    LayerCategory lastCat = LayerCategory::Custom;
     bool showGroupHeaders = (sortMode_ == SortMode::TypeGroup);
+    LayerCategory lastCat = LayerCategory::Custom;
     int gridIdx = 0;
 
     for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
-        const auto& le = layers_[i];
+        auto& le = layers_[i];
 
-        // Category visibility
         bool catVisible = true;
         auto it = categoryChecks_.find(le.category);
         if (it != categoryChecks_.end())
             catVisible = it->second->isChecked();
-
-        // Text filter
         bool textVisible = textFilter.isEmpty()
             || toLower(le.name).find(textFilter.toStdString()) != std::string::npos;
-
         bool visible = catVisible && textVisible;
 
-        // Group headers (only for visible layers in TypeGroup mode)
-        if (showGroupHeaders && visible && (i == 0 || le.category != lastCat)) {
-            // Check that at least one layer in this category is visible
-            bool anyCatVisible = false;
-            for (int j = i; j < static_cast<int>(layers_.size()); ++j) {
-                if (layers_[j].category != le.category) break;
-                bool tv = textFilter.isEmpty()
-                    || toLower(layers_[j].name).find(textFilter.toStdString()) != std::string::npos;
-                if (tv) { anyCatVisible = true; break; }
-            }
-
-            if (anyCatVisible && catVisible) {
-                if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
-                auto* header = new QLabel(
-                    QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
-                header->setStyleSheet(
-                    "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
-                grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
-                groupHeaders_.push_back(header);
-                gridIdx += cols;
-            }
+        // Group header
+        if (showGroupHeaders && visible && (gridIdx == 0 || le.category != lastCat)) {
+            if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
+            auto* header = new QLabel(
+                QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
+            header->setStyleSheet(
+                "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
+            grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
+            groupHeaders_.push_back(header);
+            gridIdx += cols;
             lastCat = le.category;
         }
 
+        // Create button
         auto* btn = new QToolButton;
         QString label = QString::fromStdString(le.name);
         if (le.channelCount > 0) label += QString("  [%1ch]").arg(le.channelCount);
@@ -782,8 +832,7 @@ void InspectorDialog::buildGrid()
         if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                    Qt::KeepAspectRatio,
-                                    Qt::SmoothTransformation));
+                                    Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
         } else {
             QPixmap placeholder(thumbWidth_, thumbHeight_);
@@ -796,28 +845,11 @@ void InspectorDialog::buildGrid()
                 [this, layerName]() { if (onLayerSelected_) onLayerSelected_(layerName); });
 
         btn->setVisible(visible);
+        le.button = btn;
 
         if (visible) {
             grid_->addWidget(btn, gridIdx / cols, gridIdx % cols);
             ++gridIdx;
-        }
-
-        buttons_.push_back({i, btn});
-    }
-}
-
-void InspectorDialog::updateButtonThumbnail(int displayIndex)
-{
-    for (auto& be : buttons_) {
-        if (be.layerIdx == displayIndex) {
-            const auto& le = layers_[displayIndex];
-            if (le.thumbnail.isNull()) return;
-            QPixmap pm = QPixmap::fromImage(
-                le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                    Qt::KeepAspectRatio,
-                                    Qt::SmoothTransformation));
-            be.button->setIcon(QIcon(pm));
-            return;
         }
     }
 }
@@ -843,7 +875,6 @@ void InspectorDialog::updateProgress()
 // ============================================================================
 void InspectorDialog::filterLayers(const QString& text)
 {
-    // Use shared visibility logic
     applyVisibility();
 }
 
