@@ -944,7 +944,4 @@ void InspectorDialog::onProxyChanged(int comboIndex)
     int newStep = proxyCombo_->itemData(comboIndex).toInt();
     if (newStep == proxyStep_) return;
     proxyStep_ = newStep;
-    if (!scanned_) return;
-    if (autoThumbCheck_ && autoThumbCheck_->isChecked())
-        onRegenerate();
 }
