@@ -1,10 +1,9 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 7
+// Version 8
 //
-// launchInspector() does ZERO Nuke work.  exec() opens a modal dialog
-// with its own event loop.  User clicks "Scan Layers" then
-// "Generate Thumbnails".
+// exec() opens modal dialog with nested event loop.
+// showEvent auto-triggers scan + progressive rendering.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -43,7 +42,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v7\n\n"
+    "Visual Layer Inspector v8\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -229,7 +228,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  •  v7</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  •  v8</i>");
     }
 
     int knob_changed(Knob* k) override
@@ -289,7 +288,6 @@ private:
 
     void launchInspector()
     {
-        // ZERO Nuke work here — just create dialog and exec()
         auto* self = this;
 
         auto prepare = [self]() -> PrepareResult {

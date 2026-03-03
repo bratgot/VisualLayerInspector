@@ -2,8 +2,14 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector for Nuke 16
-// Version 7
+// InspectorDialog.h — Visual Layer Inspector v8
+//
+// Auto workflow via exec()'s nested event loop:
+//   1. Dialog opens instantly — zero Nuke calls.
+//   2. showEvent → singleShot(0) → auto-scan layers.
+//   3. Grid populates with placeholders → auto-starts rendering.
+//   4. Thumbnails fill in progressively via singleShot chaining.
+//   5. User can Stop/Resume/Filter/Close at any time.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -26,12 +32,13 @@
 #include <QIcon>
 #include <QElapsedTimer>
 #include <QApplication>
+#include <QShowEvent>
 
 #include <string>
 #include <vector>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v7";
+static constexpr const char* kVLI_Version = "v8";
 
 // ============================================================================
 //  Callback types
@@ -59,10 +66,13 @@ public:
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private slots:
-    void onScanLayers();
-    void onGenerateThumbnails();
+    void autoInit();
     void onStopResume();
+    void onRegenerate();
     void renderNextThumbnail();
     void filterLayers(const QString& text);
     void onThumbnailSizeChanged(int value);
@@ -71,6 +81,7 @@ private slots:
 private:
     void buildGrid();
     int  computeColumns() const;
+    void beginRendering();
     void scheduleNextRender();
     void stopRendering();
     void updateProgress();
@@ -86,6 +97,7 @@ private:
     int           nextRenderIdx_ = 0;
     bool          rendering_     = false;
     bool          scanned_       = false;
+    bool          showFired_     = false;
     QElapsedTimer perfTimer_;
     int           proxyStep_     = 4;
     int           thumbWidth_    = 200;
@@ -97,9 +109,9 @@ private:
     static constexpr int   kDefaultThumbSize = 200;
     static constexpr float kAspectRatio      = 0.6f;
 
-    QPushButton*   scanBtn_        = nullptr;
-    QPushButton*   generateBtn_    = nullptr;
+    // Widgets
     QPushButton*   stopBtn_        = nullptr;
+    QPushButton*   regenBtn_       = nullptr;
     QScrollArea*   scrollArea_     = nullptr;
     QWidget*       container_      = nullptr;
     QGridLayout*   grid_           = nullptr;
@@ -109,7 +121,6 @@ private:
     QComboBox*     proxyCombo_     = nullptr;
     QProgressBar*  progressBar_    = nullptr;
     QLabel*        statusLabel_    = nullptr;
-    QLabel*        versionLabel_   = nullptr;
     QWidget*       controlsWidget_ = nullptr;
 
     struct ButtonEntry {
