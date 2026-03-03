@@ -557,6 +557,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
             btn.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
             btn.setFixedSize(btn_w, btn_h)
             btn.setIconSize(QtCore.QSize(self._thumb_w, self._thumb_h))
+            btn.setStyleSheet("QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }")
 
             pm = self._thumb_pixmaps.get(name)
             if pm and not pm.isNull():
@@ -566,10 +567,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
                     QtCore.Qt.SmoothTransformation
                 )
                 btn.setIcon(QtGui.QIcon(scaled))
-            else:
-                placeholder = QtGui.QPixmap(self._thumb_w, self._thumb_h)
-                placeholder.fill(QtGui.QColor(40, 40, 40))
-                btn.setIcon(QtGui.QIcon(placeholder))
+            # No placeholder pixmap — avoids expensive rescaling during slider drag
 
             btn.clicked.connect(lambda checked=False, l=name: self._set_layer(l))
 
@@ -899,10 +897,11 @@ class VisualLayerPicker(QtWidgets.QDialog):
             if not btn:
                 continue
             btn.setFixedSize(btn_w, btn_h)
-            btn.setIconSize(icon_size)
 
             if not any_thumbs:
                 continue  # just resize geometry, no icon update
+
+            btn.setIconSize(icon_size)
 
             pm = self._thumb_pixmaps.get(le['name'])
             if pm and not pm.isNull():
@@ -912,10 +911,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
                     QtCore.Qt.FastTransformation
                 )
                 btn.setIcon(QtGui.QIcon(scaled))
-            else:
-                placeholder = QtGui.QPixmap(self._thumb_w, self._thumb_h)
-                placeholder.fill(QtGui.QColor(40, 40, 40))
-                btn.setIcon(QtGui.QIcon(placeholder))
+            # Skip placeholder — avoids expensive rescaling
 
     def _reflow_grid_fast(self, new_cols):
         """Lightweight reflow: reposition existing buttons without destroying them.
