@@ -1,7 +1,7 @@
 """
-Visual Layer Inspector v17 — Python version
+Visual Layer Inspector v18 — Python version
 
-v17: Instant sort — buttons stored per-layer and reordered without
+v18: Auto Thumbnails checkbox, layout fix — buttons stored per-layer and reordered without
      destruction. All button + empty state message.
 
 Created by Marten Blumen
@@ -16,7 +16,7 @@ try:
 except ImportError:
     from PySide6 import QtWidgets, QtCore, QtGui
 
-VLI_VERSION = "v17"
+VLI_VERSION = "v18"
 
 # Global reference to keep dialog alive (prevents GC)
 _inspector_dialog = None
@@ -295,6 +295,17 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._regen_btn.clicked.connect(self._on_regenerate)
         row2.addWidget(self._regen_btn)
 
+        row2.addSpacing(10)
+
+        self._auto_thumb_check = QtWidgets.QCheckBox("Auto Thumbnails")
+        self._auto_thumb_check.setChecked(True)
+        self._auto_thumb_check.setStyleSheet("QCheckBox { font-size: 12px; color: #bbbbbb; }")
+        self._auto_thumb_check.setToolTip(
+            "When checked, thumbnails generate automatically on launch.\n"
+            "Uncheck for large EXRs \u2014 use Regenerate to render manually."
+        )
+        row2.addWidget(self._auto_thumb_check)
+
         row2.addStretch()
         controls.addLayout(row2)
 
@@ -333,7 +344,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._empty_label.setStyleSheet("font-size: 14px; color: #888888; padding: 40px;")
         self._empty_label.setWordWrap(True)
         self._empty_label.setVisible(False)
-        self.main_layout.addWidget(self._empty_label)
+        self.main_layout.addWidget(self._empty_label, 1)
 
         # Footer
         footer = QtWidgets.QHBoxLayout()
@@ -404,7 +415,13 @@ class VisualLayerPicker(QtWidgets.QDialog):
             )
         )
 
-        QtCore.QTimer.singleShot(1, self._begin_rendering)
+        if self._auto_thumb_check.isChecked():
+            QtCore.QTimer.singleShot(1, self._begin_rendering)
+        else:
+            self._regen_btn.setEnabled(True)
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
+            self._progress.setFormat(u"Thumbnails disabled \u2014 click Regenerate")
 
     # ================================================================
     #  Layer preparation

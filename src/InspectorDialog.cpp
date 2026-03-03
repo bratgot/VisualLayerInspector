@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v17
+// InspectorDialog.cpp — Visual Layer Inspector v18
 //
-// v17: Instant sort — buttons are stored in LayerEntry and move with
+// v18: Instant sort — buttons are stored in LayerEntry and move with
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
 //
@@ -296,6 +296,16 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     connect(regenBtn_, &QPushButton::clicked, this, &InspectorDialog::onRegenerate);
     row3->addWidget(regenBtn_);
 
+    row3->addSpacing(10);
+
+    autoThumbCheck_ = new QCheckBox("Auto Thumbnails");
+    autoThumbCheck_->setChecked(true);
+    autoThumbCheck_->setStyleSheet("QCheckBox { font-size: 12px; color: #bbbbbb; }");
+    autoThumbCheck_->setToolTip(
+        "When checked, thumbnails generate automatically on launch.\n"
+        "Uncheck for large EXRs \xe2\x80\x94 use Regenerate to render manually.");
+    row3->addWidget(autoThumbCheck_);
+
     row3->addStretch();
     controlsLayout->addLayout(row3);
 
@@ -325,14 +335,14 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     scrollArea_->setWidget(container_);
     mainLayout->addWidget(scrollArea_, 1);
 
-    // Empty state label
+    // Empty state label (same stretch as scroll area so it fills the space)
     emptyLabel_ = new QLabel(
         "All category checkboxes are unchecked \xe2\x80\x94 tick at least one to display layers.");
     emptyLabel_->setAlignment(Qt::AlignCenter);
     emptyLabel_->setStyleSheet("font-size: 14px; color: #888888; padding: 40px;");
     emptyLabel_->setWordWrap(true);
     emptyLabel_->setVisible(false);
-    mainLayout->addWidget(emptyLabel_);
+    mainLayout->addWidget(emptyLabel_, 1);
 
     // --- Footer ---
     auto* footerLayout = new QHBoxLayout;
@@ -409,7 +419,14 @@ void InspectorDialog::autoInit()
     updateCategoryCounts();
     buildGrid();
 
-    QTimer::singleShot(1, this, [this]() { beginRendering(); });
+    if (autoThumbCheck_->isChecked()) {
+        QTimer::singleShot(1, this, [this]() { beginRendering(); });
+    } else {
+        regenBtn_->setEnabled(true);
+        progressBar_->setRange(0, 1);
+        progressBar_->setValue(0);
+        progressBar_->setFormat("Thumbnails disabled \xe2\x80\x94 click Regenerate");
+    }
 }
 
 // ============================================================================

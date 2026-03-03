@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v17
+// InspectorDialog.h — Visual Layer Inspector v18
 //
-// v17: Instant sort — reorderGridFast() repositions existing buttons
+// v18: Instant sort — reorderGridFast() repositions existing buttons
 //      without destroying/recreating. All button for category checkboxes.
 //
 // Created by Marten Blumen
@@ -36,7 +36,7 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v17";
+static constexpr const char* kVLI_Version = "v18";
 
 // ============================================================================
 //  Callback types
@@ -165,6 +165,7 @@ private:
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
     QLabel*        emptyLabel_     = nullptr;
+    QCheckBox*     autoThumbCheck_ = nullptr;
 
     std::map<LayerCategory, QCheckBox*> categoryChecks_;
     std::vector<QLabel*>     groupHeaders_;
