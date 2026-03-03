@@ -2,10 +2,10 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v9
+// InspectorDialog.h — Visual Layer Inspector v11
 //
-// v9: Smooth thumbnail slider — resizes buttons in-place during drag,
-//     only reflows grid columns on slider release.
+// v11: Modeless window — Nuke stays interactive, Viewer updates live.
+//      show() from knob_changed, all Nuke work deferred via showEvent.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -34,7 +34,7 @@
 #include <vector>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v9";
+static constexpr const char* kVLI_Version = "v11";
 
 // ============================================================================
 //  Callback types
@@ -44,11 +44,40 @@ using LayerCallback     = std::function<void(const std::string&)>;
 
 struct PrepareResult {
     std::vector<std::string> layerNames;
+    std::vector<int>         channelCounts;
     RenderOneCallback        renderOne;
     bool                     valid = false;
     std::string              errorMsg;
 };
 using PrepareCallback = std::function<PrepareResult()>;
+
+// ============================================================================
+//  Layer categories
+// ============================================================================
+enum class LayerCategory : int {
+    Lighting = 0, Utility, Data, Cryptomatte, Custom
+};
+
+const char* layerCategoryName(LayerCategory cat);
+LayerCategory classifyLayer(const std::string& name);
+
+// ============================================================================
+//  Per-layer data
+// ============================================================================
+struct LayerEntry {
+    std::string   name;
+    int           prepareIndex;
+    int           channelCount;
+    LayerCategory category;
+    QImage        thumbnail;
+};
+
+// ============================================================================
+//  Sort modes
+// ============================================================================
+enum class SortMode : int {
+    Alphabetical_AZ = 0, Alphabetical_ZA, TypeGroup, ChannelCount, OriginalOrder
+};
 
 // ============================================================================
 //  InspectorDialog
@@ -74,23 +103,24 @@ private slots:
     void onThumbnailSizeDrag(int value);
     void onThumbnailSizeRelease();
     void onProxyChanged(int comboIndex);
+    void onSortChanged(int comboIndex);
 
 private:
     void buildGrid();
     void resizeButtonsInPlace();
+    void sortLayers();
     int  computeColumns() const;
     void beginRendering();
     void scheduleNextRender();
     void stopRendering();
     void updateProgress();
-    void updateButtonThumbnail(int index);
+    void updateButtonThumbnail(int displayIndex);
 
     PrepareCallback           prepare_;
     LayerCallback             onLayerSelected_;
     RenderOneCallback         renderOne_;
 
-    std::vector<std::string>  layerNames_;
-    std::vector<QImage>       thumbnailImages_;
+    std::vector<LayerEntry>   layers_;
 
     int           nextRenderIdx_ = 0;
     bool          rendering_     = false;
@@ -100,6 +130,7 @@ private:
     int           proxyStep_     = 4;
     int           thumbWidth_    = 200;
     int           thumbHeight_   = 120;
+    SortMode      sortMode_      = SortMode::TypeGroup;
 
     static constexpr int   kButtonPadding    = 10;
     static constexpr int   kMinThumbSize     = 80;
@@ -107,7 +138,6 @@ private:
     static constexpr int   kDefaultThumbSize = 200;
     static constexpr float kAspectRatio      = 0.6f;
 
-    // Widgets
     QPushButton*   stopBtn_        = nullptr;
     QPushButton*   regenBtn_       = nullptr;
     QScrollArea*   scrollArea_     = nullptr;
@@ -117,13 +147,14 @@ private:
     QSlider*       sizeSlider_     = nullptr;
     QLabel*        sizeLabel_      = nullptr;
     QComboBox*     proxyCombo_     = nullptr;
+    QComboBox*     sortCombo_      = nullptr;
     QProgressBar*  progressBar_    = nullptr;
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
 
     struct ButtonEntry {
-        std::string   name;
-        QToolButton*  button;
+        int            layerIdx;
+        QToolButton*   button;
     };
     std::vector<ButtonEntry> buttons_;
 };

@@ -1,8 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v9
+// InspectorDialog.cpp — Visual Layer Inspector v11
 //
-// v9: Smooth slider — resizes existing buttons in-place during drag
-//     (no widget destruction), reflows grid columns on release only.
+// v11: Modeless window — Nuke stays interactive, Viewer updates live.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -10,9 +9,120 @@
 #include "InspectorDialog.h"
 
 #include <algorithm>
+#include <cctype>
 
 // ============================================================================
-//  Constructor
+//  Layer classification
+// ============================================================================
+const char* layerCategoryName(LayerCategory cat)
+{
+    switch (cat) {
+        case LayerCategory::Lighting:    return "Lighting";
+        case LayerCategory::Utility:     return "Utility";
+        case LayerCategory::Data:        return "Data";
+        case LayerCategory::Cryptomatte: return "Cryptomatte";
+        case LayerCategory::Custom:      return "Custom";
+    }
+    return "Custom";
+}
+
+static std::string toLower(const std::string& s)
+{
+    std::string out = s;
+    std::transform(out.begin(), out.end(), out.begin(), ::tolower);
+    return out;
+}
+
+static bool contains(const std::string& haystack, const char* needle)
+{
+    return haystack.find(needle) != std::string::npos;
+}
+
+LayerCategory classifyLayer(const std::string& name)
+{
+    const std::string lower = toLower(name);
+
+    if (lower.substr(0, 6) == "crypto") return LayerCategory::Cryptomatte;
+
+    static const char* lightingPatterns[] = {
+        "diffuse", "specular", "reflect", "refract", "emission", "emissive",
+        "coat", "sheen", "transmis", "sss", "subsurface", "indirect",
+        "direct", "albedo", "beauty", "light", "shadow", "gi",
+        "illumin", "radiance", "irradiance", "glossy", "volume",
+        "scatter", "translucen", "caustic", "firefly", "aov_light",
+        nullptr
+    };
+    for (int i = 0; lightingPatterns[i]; ++i)
+        if (contains(lower, lightingPatterns[i])) return LayerCategory::Lighting;
+
+    static const char* utilityPatterns[] = {
+        "depth", "normal", "position", "uv", "motion", "velocity",
+        "fresnel", "curvature", "occlusion", "ao", "pointworld",
+        "worldnormal", "worldposition", "worldpoint", "pworld",
+        "nworld", "pref", "st_map", "stmap", "z_depth", "zdepth",
+        "facing_ratio", "faceratio", "barycentric", "tangent",
+        "opacity", "coverage", "rgba",
+        nullptr
+    };
+    for (int i = 0; utilityPatterns[i]; ++i)
+        if (contains(lower, utilityPatterns[i])) return LayerCategory::Utility;
+
+    static const char* dataPatterns[] = {
+        "id", "mask", "matte", "object", "material", "puzzle",
+        "asset", "element", "holdout",
+        nullptr
+    };
+    for (int i = 0; dataPatterns[i]; ++i)
+        if (contains(lower, dataPatterns[i])) return LayerCategory::Data;
+
+    return LayerCategory::Custom;
+}
+
+// ============================================================================
+//  Sorting
+// ============================================================================
+void InspectorDialog::sortLayers()
+{
+    switch (sortMode_) {
+        case SortMode::Alphabetical_AZ:
+            std::sort(layers_.begin(), layers_.end(),
+                [](const LayerEntry& a, const LayerEntry& b) {
+                    return toLower(a.name) < toLower(b.name);
+                });
+            break;
+        case SortMode::Alphabetical_ZA:
+            std::sort(layers_.begin(), layers_.end(),
+                [](const LayerEntry& a, const LayerEntry& b) {
+                    return toLower(a.name) > toLower(b.name);
+                });
+            break;
+        case SortMode::TypeGroup:
+            std::sort(layers_.begin(), layers_.end(),
+                [](const LayerEntry& a, const LayerEntry& b) {
+                    if (a.category != b.category)
+                        return static_cast<int>(a.category) < static_cast<int>(b.category);
+                    return toLower(a.name) < toLower(b.name);
+                });
+            break;
+        case SortMode::ChannelCount:
+            std::sort(layers_.begin(), layers_.end(),
+                [](const LayerEntry& a, const LayerEntry& b) {
+                    if (a.channelCount != b.channelCount)
+                        return a.channelCount > b.channelCount;
+                    return toLower(a.name) < toLower(b.name);
+                });
+            break;
+        case SortMode::OriginalOrder:
+            std::sort(layers_.begin(), layers_.end(),
+                [](const LayerEntry& a, const LayerEntry& b) {
+                    return a.prepareIndex < b.prepareIndex;
+                });
+            break;
+    }
+}
+
+// ============================================================================
+//  Constructor — MODELESS, no setModal
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
@@ -22,9 +132,9 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     , onLayerSelected_(std::move(onLayerSelected))
 {
     setWindowTitle(QString("Visual Layer Inspector  [%1]").arg(kVLI_Version));
-    setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
+    setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint);
     resize(1150, 850);
-    setModal(true);
+    // NOT modal — Nuke stays interactive
 
     auto* mainLayout = new QVBoxLayout(this);
 
@@ -54,29 +164,45 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     auto* controlsLayout = new QVBoxLayout(controlsWidget_);
     controlsLayout->setContentsMargins(0, 0, 0, 0);
 
-    // Row 1: filter + size
+    // Row 1: filter + sort + size
     auto* row1 = new QHBoxLayout;
 
     filterEdit_ = new QLineEdit;
     filterEdit_->setPlaceholderText("Filter layers (e.g., 'depth', 'spec')...");
     filterEdit_->setStyleSheet("font-size: 14px; padding: 5px;");
-    connect(filterEdit_, &QLineEdit::textChanged,
-            this,        &InspectorDialog::filterLayers);
+    connect(filterEdit_, &QLineEdit::textChanged, this, &InspectorDialog::filterLayers);
     row1->addWidget(filterEdit_, 1);
 
-    row1->addSpacing(15);
+    row1->addSpacing(10);
+    row1->addWidget(new QLabel("Sort:"));
+
+    sortCombo_ = new QComboBox;
+    sortCombo_->addItem("A \xe2\x86\x92 Z",       static_cast<int>(SortMode::Alphabetical_AZ));
+    sortCombo_->addItem("Z \xe2\x86\x92 A",       static_cast<int>(SortMode::Alphabetical_ZA));
+    sortCombo_->addItem("Type Group",               static_cast<int>(SortMode::TypeGroup));
+    sortCombo_->addItem("Channel Count",            static_cast<int>(SortMode::ChannelCount));
+    sortCombo_->addItem("Original Order",           static_cast<int>(SortMode::OriginalOrder));
+    sortCombo_->setCurrentIndex(2);
+    sortCombo_->setToolTip(
+        "Type Group auto-categorises layers:\n"
+        "  Lighting \xe2\x80\x94 diffuse, specular, reflection, emission, sss...\n"
+        "  Utility \xe2\x80\x94 depth, normal, position, motion, uv, ao...\n"
+        "  Data \xe2\x80\x94 id, mask, matte, object, material...\n"
+        "  Cryptomatte \xe2\x80\x94 crypto*\n"
+        "  Custom \xe2\x80\x94 everything else");
+    connect(sortCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &InspectorDialog::onSortChanged);
+    row1->addWidget(sortCombo_);
+
+    row1->addSpacing(10);
     row1->addWidget(new QLabel("Size:"));
 
     sizeSlider_ = new QSlider(Qt::Horizontal);
     sizeSlider_->setRange(kMinThumbSize, kMaxThumbSize);
     sizeSlider_->setValue(kDefaultThumbSize);
-    sizeSlider_->setFixedWidth(160);
-    // Live resize during drag — no rebuild, just resize existing buttons
-    connect(sizeSlider_, &QSlider::valueChanged,
-            this,        &InspectorDialog::onThumbnailSizeDrag);
-    // Full grid reflow on release — recomputes column count
-    connect(sizeSlider_, &QSlider::sliderReleased,
-            this,        &InspectorDialog::onThumbnailSizeRelease);
+    sizeSlider_->setFixedWidth(140);
+    connect(sizeSlider_, &QSlider::valueChanged, this, &InspectorDialog::onThumbnailSizeDrag);
+    connect(sizeSlider_, &QSlider::sliderReleased, this, &InspectorDialog::onThumbnailSizeRelease);
     row1->addWidget(sizeSlider_);
 
     sizeLabel_ = new QLabel(QString::number(kDefaultThumbSize) + "px");
@@ -99,14 +225,13 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     row2->addWidget(new QLabel("Proxy:"));
 
     proxyCombo_ = new QComboBox;
-    proxyCombo_->addItem("Full Quality",  1);
-    proxyCombo_->addItem("2x Proxy",      2);
-    proxyCombo_->addItem("4x Proxy",      4);
-    proxyCombo_->addItem("8x Proxy",      8);
+    proxyCombo_->addItem("Full Quality", 1);
+    proxyCombo_->addItem("2x Proxy",     2);
+    proxyCombo_->addItem("4x Proxy",     4);
+    proxyCombo_->addItem("8x Proxy",     8);
     proxyCombo_->setCurrentIndex(2);
-    proxyCombo_->setToolTip("Higher proxy = faster but lower quality thumbnails.");
     connect(proxyCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this,        &InspectorDialog::onProxyChanged);
+            this, &InspectorDialog::onProxyChanged);
     row2->addWidget(proxyCombo_);
 
     row2->addSpacing(10);
@@ -122,7 +247,6 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     row2->addWidget(regenBtn_);
 
     row2->addStretch();
-
     controlsLayout->addLayout(row2);
 
     // Progress
@@ -146,15 +270,15 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     // --- Grid ---
     scrollArea_ = new QScrollArea;
     scrollArea_->setWidgetResizable(true);
-    container_  = new QWidget;
-    grid_       = new QGridLayout(container_);
+    container_ = new QWidget;
+    grid_ = new QGridLayout(container_);
     scrollArea_->setWidget(container_);
     mainLayout->addWidget(scrollArea_, 1);
 
     // --- Footer ---
     auto* footerLayout = new QHBoxLayout;
     auto* credit = new QLabel(
-        QString("Created by Marten Blumen  •  %1").arg(kVLI_Version));
+        QString("Created by Marten Blumen  \xe2\x80\xa2  %1").arg(kVLI_Version));
     credit->setStyleSheet("font-size: 11px; color: #777777; font-style: italic;");
     footerLayout->addWidget(credit);
     footerLayout->addStretch();
@@ -207,16 +331,37 @@ void InspectorDialog::autoInit()
         return;
     }
 
-    layerNames_.assign(result.layerNames.rbegin(), result.layerNames.rend());
-    thumbnailImages_.resize(layerNames_.size());
     renderOne_ = std::move(result.renderOne);
-    scanned_ = true;
 
+    layers_.clear();
+    layers_.reserve(result.layerNames.size());
+    for (int i = 0; i < static_cast<int>(result.layerNames.size()); ++i) {
+        LayerEntry le;
+        le.name = result.layerNames[i];
+        le.prepareIndex = i;
+        le.channelCount = (i < static_cast<int>(result.channelCounts.size()))
+                              ? result.channelCounts[i] : 0;
+        le.category = classifyLayer(le.name);
+        layers_.push_back(std::move(le));
+    }
+
+    sortLayers();
+    scanned_ = true;
     buildGrid();
 
+    int nLight = 0, nUtil = 0, nData = 0, nCrypto = 0, nCustom = 0;
+    for (const auto& le : layers_) {
+        switch (le.category) {
+            case LayerCategory::Lighting:    ++nLight;  break;
+            case LayerCategory::Utility:     ++nUtil;   break;
+            case LayerCategory::Data:        ++nData;   break;
+            case LayerCategory::Cryptomatte: ++nCrypto; break;
+            case LayerCategory::Custom:      ++nCustom; break;
+        }
+    }
     statusLabel_->setText(
-        QString("Found %1 layers — generating thumbnails...")
-            .arg(layerNames_.size()));
+        QString("Found %1 layers (%2 lighting, %3 utility, %4 data, %5 crypto, %6 custom)")
+            .arg(layers_.size()).arg(nLight).arg(nUtil).arg(nData).arg(nCrypto).arg(nCustom));
 
     QTimer::singleShot(1, this, [this]() { beginRendering(); });
 }
@@ -226,17 +371,14 @@ void InspectorDialog::autoInit()
 // ============================================================================
 void InspectorDialog::beginRendering()
 {
-    if (!scanned_ || layerNames_.empty()) return;
-
+    if (!scanned_ || layers_.empty()) return;
     rendering_ = true;
     nextRenderIdx_ = 0;
     perfTimer_.start();
-
     stopBtn_->setText("Stop");
     stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
     stopBtn_->setEnabled(true);
     regenBtn_->setEnabled(false);
-
     updateProgress();
     scheduleNextRender();
 }
@@ -250,28 +392,21 @@ void InspectorDialog::scheduleNextRender()
 void InspectorDialog::renderNextThumbnail()
 {
     if (!rendering_) return;
+    const int total = static_cast<int>(layers_.size());
+    if (nextRenderIdx_ >= total) { stopRendering(); return; }
 
-    const int total = static_cast<int>(layerNames_.size());
-    if (nextRenderIdx_ >= total) {
-        stopRendering();
-        return;
-    }
-
-    const int originalIdx = total - 1 - nextRenderIdx_;
-
+    auto& entry = layers_[nextRenderIdx_];
     if (renderOne_) {
-        QImage img = renderOne_(originalIdx, proxyStep_);
-        thumbnailImages_[nextRenderIdx_] = std::move(img);
+        QImage img = renderOne_(entry.prepareIndex, proxyStep_);
+        entry.thumbnail = std::move(img);
         updateButtonThumbnail(nextRenderIdx_);
     }
 
     ++nextRenderIdx_;
     updateProgress();
 
-    if (nextRenderIdx_ >= total)
-        stopRendering();
-    else
-        scheduleNextRender();
+    if (nextRenderIdx_ >= total) stopRendering();
+    else scheduleNextRender();
 }
 
 // ============================================================================
@@ -281,19 +416,14 @@ void InspectorDialog::stopRendering()
 {
     rendering_ = false;
     regenBtn_->setEnabled(true);
-
     int done = nextRenderIdx_;
-    int total = static_cast<int>(layerNames_.size());
-
+    int total = static_cast<int>(layers_.size());
     if (done >= total) {
         double elapsed = perfTimer_.elapsed() / 1000.0;
-        statusLabel_->setText(
-            QString("Done — %1 layers in %2 s").arg(total).arg(elapsed, 0, 'f', 2));
+        statusLabel_->setText(QString("Done \xe2\x80\x94 %1 layers in %2 s").arg(total).arg(elapsed, 0, 'f', 2));
         stopBtn_->setEnabled(false);
     } else {
-        statusLabel_->setText(
-            QString("Paused — %1 / %2 rendered  (click any layer name to view it)")
-                .arg(done).arg(total));
+        statusLabel_->setText(QString("Paused \xe2\x80\x94 %1 / %2 rendered").arg(done).arg(total));
         stopBtn_->setText("Resume");
         stopBtn_->setStyleSheet("font-weight: bold; background-color: #335544;");
     }
@@ -303,7 +433,7 @@ void InspectorDialog::onStopResume()
 {
     if (rendering_) {
         stopRendering();
-    } else if (scanned_ && nextRenderIdx_ < static_cast<int>(layerNames_.size())) {
+    } else if (scanned_ && nextRenderIdx_ < static_cast<int>(layers_.size())) {
         rendering_ = true;
         regenBtn_->setEnabled(false);
         stopBtn_->setText("Stop");
@@ -315,25 +445,46 @@ void InspectorDialog::onStopResume()
 
 void InspectorDialog::onRegenerate()
 {
-    if (!scanned_ || layerNames_.empty()) return;
+    if (!scanned_ || layers_.empty()) return;
     stopRendering();
-    thumbnailImages_.assign(layerNames_.size(), QImage());
+    for (auto& le : layers_) le.thumbnail = QImage();
     buildGrid();
     beginRendering();
 }
 
 // ============================================================================
-//  Smooth slider: live resize in-place (no rebuild)
+//  Sort changed
+// ============================================================================
+void InspectorDialog::onSortChanged(int comboIndex)
+{
+    SortMode newMode = static_cast<SortMode>(sortCombo_->itemData(comboIndex).toInt());
+    if (newMode == sortMode_) return;
+    sortMode_ = newMode;
+    if (!scanned_) return;
+    bool wasRendering = rendering_;
+    if (rendering_) stopRendering();
+    sortLayers();
+    buildGrid();
+    if (wasRendering || nextRenderIdx_ < static_cast<int>(layers_.size())) {
+        nextRenderIdx_ = 0;
+        for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
+            if (layers_[i].thumbnail.isNull()) { nextRenderIdx_ = i; break; }
+            nextRenderIdx_ = i + 1;
+        }
+        if (nextRenderIdx_ < static_cast<int>(layers_.size()))
+            beginRendering();
+    }
+}
+
+// ============================================================================
+//  Smooth slider
 // ============================================================================
 void InspectorDialog::onThumbnailSizeDrag(int value)
 {
     thumbWidth_  = value;
     thumbHeight_ = static_cast<int>(value * kAspectRatio);
     sizeLabel_->setText(QString::number(value) + "px");
-
     if (!scanned_ || buttons_.empty()) return;
-
-    // Resize existing buttons without destroying them — fast path
     resizeButtonsInPlace();
 }
 
@@ -342,20 +493,14 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const QSize iconSize(thumbWidth_, thumbHeight_);
-
-    for (int i = 0; i < static_cast<int>(buttons_.size()); ++i) {
-        auto* btn = buttons_[i].button;
+    for (auto& be : buttons_) {
+        auto* btn = be.button;
         btn->setFixedSize(btnWidth, btnHeight);
         btn->setIconSize(iconSize);
-
-        // Re-scale existing thumbnail image if we have one
-        if (i < static_cast<int>(thumbnailImages_.size()) &&
-            !thumbnailImages_[i].isNull())
-        {
+        const auto& le = layers_[be.layerIdx];
+        if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
-                thumbnailImages_[i].scaled(thumbWidth_, thumbHeight_,
-                                           Qt::KeepAspectRatio,
-                                           Qt::FastTransformation));
+                le.thumbnail.scaled(thumbWidth_, thumbHeight_, Qt::KeepAspectRatio, Qt::FastTransformation));
             btn->setIcon(QIcon(pm));
         } else {
             QPixmap placeholder(thumbWidth_, thumbHeight_);
@@ -367,7 +512,6 @@ void InspectorDialog::resizeButtonsInPlace()
 
 void InspectorDialog::onThumbnailSizeRelease()
 {
-    // Full grid rebuild to reflow columns for new button size
     if (scanned_) buildGrid();
 }
 
@@ -377,40 +521,55 @@ void InspectorDialog::onThumbnailSizeRelease()
 int InspectorDialog::computeColumns() const
 {
     int available = scrollArea_ ? scrollArea_->viewport()->width() : 1100;
-    int btnWidth  = thumbWidth_ + kButtonPadding;
-    return std::max(1, available / btnWidth);
+    return std::max(1, available / (thumbWidth_ + kButtonPadding));
 }
 
 void InspectorDialog::buildGrid()
 {
-    for (auto& entry : buttons_) {
-        entry.button->setParent(nullptr);
-        delete entry.button;
-    }
+    for (auto& be : buttons_) { be.button->setParent(nullptr); delete be.button; }
     buttons_.clear();
+
+    // Clear group headers
+    while (grid_->count()) {
+        QLayoutItem* item = grid_->takeAt(0);
+        if (item->widget()) { item->widget()->setParent(nullptr); delete item->widget(); }
+        delete item;
+    }
 
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const int cols = computeColumns();
     const QString filter = filterEdit_ ? filterEdit_->text().toLower() : QString();
 
+    LayerCategory lastCat = LayerCategory::Custom;
+    bool showGroupHeaders = (sortMode_ == SortMode::TypeGroup);
     int gridIdx = 0;
-    for (int i = 0; i < static_cast<int>(layerNames_.size()); ++i) {
-        const auto& name = layerNames_[i];
+
+    for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
+        const auto& le = layers_[i];
+
+        if (showGroupHeaders && (i == 0 || le.category != lastCat)) {
+            if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
+            auto* header = new QLabel(
+                QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
+            header->setStyleSheet(
+                "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
+            grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
+            gridIdx += cols;
+            lastCat = le.category;
+        }
 
         auto* btn = new QToolButton;
-        btn->setText(QString::fromStdString(name));
+        QString label = QString::fromStdString(le.name);
+        if (le.channelCount > 0) label += QString("  [%1ch]").arg(le.channelCount);
+        btn->setText(label);
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setFixedSize(btnWidth, btnHeight);
         btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
 
-        if (i < static_cast<int>(thumbnailImages_.size()) &&
-            !thumbnailImages_[i].isNull())
-        {
+        if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
-                thumbnailImages_[i].scaled(thumbWidth_, thumbHeight_,
-                                           Qt::KeepAspectRatio,
-                                           Qt::SmoothTransformation));
+                le.thumbnail.scaled(thumbWidth_, thumbHeight_, Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
         } else {
             QPixmap placeholder(thumbWidth_, thumbHeight_);
@@ -418,55 +577,46 @@ void InspectorDialog::buildGrid()
             btn->setIcon(QIcon(placeholder));
         }
 
-        std::string layerName = name;
+        std::string layerName = le.name;
         connect(btn, &QToolButton::clicked, this,
-                [this, layerName]() {
-                    if (onLayerSelected_)
-                        onLayerSelected_(layerName);
-                });
+                [this, layerName]() { if (onLayerSelected_) onLayerSelected_(layerName); });
 
-        std::string lower = name;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        bool visible = filter.isEmpty() ||
-                       lower.find(filter.toStdString()) != std::string::npos;
-        btn->setVisible(visible);
+        std::string lower = toLower(le.name);
+        btn->setVisible(filter.isEmpty() || lower.find(filter.toStdString()) != std::string::npos);
 
         grid_->addWidget(btn, gridIdx / cols, gridIdx % cols);
-        buttons_.push_back({name, btn});
+        buttons_.push_back({i, btn});
         ++gridIdx;
     }
 }
 
-void InspectorDialog::updateButtonThumbnail(int index)
+void InspectorDialog::updateButtonThumbnail(int displayIndex)
 {
-    if (index < 0 || index >= static_cast<int>(buttons_.size())) return;
-    if (index >= static_cast<int>(thumbnailImages_.size())) return;
-    const QImage& img = thumbnailImages_[index];
-    if (img.isNull()) return;
-
-    QPixmap pm = QPixmap::fromImage(
-        img.scaled(thumbWidth_, thumbHeight_,
-                   Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    buttons_[index].button->setIcon(QIcon(pm));
+    for (auto& be : buttons_) {
+        if (be.layerIdx == displayIndex) {
+            const auto& le = layers_[displayIndex];
+            if (le.thumbnail.isNull()) return;
+            QPixmap pm = QPixmap::fromImage(
+                le.thumbnail.scaled(thumbWidth_, thumbHeight_, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            be.button->setIcon(QIcon(pm));
+            return;
+        }
+    }
 }
 
 void InspectorDialog::updateProgress()
 {
-    int total = static_cast<int>(layerNames_.size());
+    int total = static_cast<int>(layers_.size());
     progressBar_->setMaximum(total);
     progressBar_->setValue(nextRenderIdx_);
-    progressBar_->setFormat(
-        QString("%1 / %2 layers").arg(nextRenderIdx_).arg(total));
-
+    progressBar_->setFormat(QString("%1 / %2 layers").arg(nextRenderIdx_).arg(total));
     if (rendering_ && nextRenderIdx_ > 0 && nextRenderIdx_ < total) {
         double elapsed = perfTimer_.elapsed() / 1000.0;
         double perLayer = elapsed / nextRenderIdx_;
         double remaining = perLayer * (total - nextRenderIdx_);
         statusLabel_->setText(
             QString("Rendering... ~%1 s remaining  (%2 ms/layer, %3x proxy)")
-                .arg(remaining, 0, 'f', 1)
-                .arg(perLayer * 1000, 0, 'f', 0)
-                .arg(proxyStep_));
+                .arg(remaining, 0, 'f', 1).arg(perLayer * 1000, 0, 'f', 0).arg(proxyStep_));
     }
 }
 
@@ -475,11 +625,10 @@ void InspectorDialog::updateProgress()
 // ============================================================================
 void InspectorDialog::filterLayers(const QString& text)
 {
-    const std::string filter = text.toLower().toStdString();
-    for (auto& entry : buttons_) {
-        std::string lower = entry.name;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        entry.button->setVisible(lower.find(filter) != std::string::npos);
+    const std::string filter = toLower(text.toStdString());
+    for (auto& be : buttons_) {
+        const auto& le = layers_[be.layerIdx];
+        be.button->setVisible(toLower(le.name).find(filter) != std::string::npos);
     }
 }
 

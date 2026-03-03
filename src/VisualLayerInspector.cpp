@@ -1,8 +1,10 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 9
+// Version 11
 //
-// v9: Smooth thumbnail slider — resize in-place during drag, reflow on release.
+// v11: Modeless window — show() instead of exec().
+//      knob_changed returns immediately, Nuke stays interactive.
+//      Dialog is heap-allocated with WA_DeleteOnClose.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -24,9 +26,11 @@
 #include "InspectorDialog.h"
 
 #include <QApplication>
+#include <QPointer>
 
 #include <string>
 #include <vector>
+#include <map>
 #include <set>
 #include <algorithm>
 #include <cmath>
@@ -41,12 +45,16 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v9\n\n"
+    "Visual Layer Inspector v11\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
+    "The inspector window is modeless — Nuke stays fully interactive. "
+    "The Viewer updates live when you click a layer.\n\n"
     "Thumbnails render progressively using the Row API with strided fetching "
-    "for minimal memory usage. Use Proxy mode for faster browsing.";
+    "for minimal memory usage. Use Proxy mode for faster browsing.\n\n"
+    "Sort by Type Group to auto-categorise layers into Lighting, Utility, "
+    "Data, Cryptomatte, and Custom groups.";
 
 static constexpr int kThumbMaxWidth  = 240;
 static constexpr int kThumbMaxHeight = 160;
@@ -96,16 +104,25 @@ static void runPython(const std::string& cmd)
 // ============================================================================
 //  Helpers
 // ============================================================================
-static std::vector<std::string> collectLayers(const ChannelSet& channels)
+struct LayerInfo {
+    std::string name;
+    int channelCount;
+};
+
+static std::vector<LayerInfo> collectLayers(const ChannelSet& channels)
 {
-    std::set<std::string> layerSet;
+    std::map<std::string, int> layerMap;
     foreach (z, channels) {
         const std::string name = getName(z);
         const size_t dot = name.find('.');
         if (dot != std::string::npos)
-            layerSet.insert(name.substr(0, dot));
+            layerMap[name.substr(0, dot)]++;
     }
-    return {layerSet.begin(), layerSet.end()};
+    std::vector<LayerInfo> result;
+    result.reserve(layerMap.size());
+    for (const auto& kv : layerMap)
+        result.push_back({kv.first, kv.second});
+    return result;
 }
 
 struct LayerChannels {
@@ -227,7 +244,7 @@ public:
         Divider(f, "");
         Button(f, "launch_inspector", "Launch Inspector");
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  •  v9</i>");
+        Text_knob(f, "<i>Created by Marten Blumen  •  v11</i>");
     }
 
     int knob_changed(Knob* k) override
@@ -240,9 +257,12 @@ public:
     }
 
 private:
+    // QPointer tracks dialog lifetime — auto-nulls when dialog is destroyed
+    QPointer<InspectorDialog> inspectorDialog_;
+
     struct PreparedInput {
         Iop*                       iop = nullptr;
-        std::vector<std::string>   layers;
+        std::vector<LayerInfo>     layers;
         std::vector<LayerChannels> layerChannels;
         ChannelSet                 allChannels;
         Box                        bbox;
@@ -267,8 +287,8 @@ private:
                         pi.bbox.r(), pi.bbox.t(),
                         pi.allChannels, 1);
         pi.layerChannels.reserve(pi.layers.size());
-        for (const auto& name : pi.layers)
-            pi.layerChannels.push_back(resolveLayerChannels(name, pi.allChannels));
+        for (const auto& li : pi.layers)
+            pi.layerChannels.push_back(resolveLayerChannels(li.name, pi.allChannels));
         pi.valid = true;
         return pi;
     }
@@ -287,6 +307,13 @@ private:
 
     void launchInspector()
     {
+        // If dialog already open, just bring it to front
+        if (inspectorDialog_) {
+            inspectorDialog_->raise();
+            inspectorDialog_->activateWindow();
+            return;
+        }
+
         auto* self = this;
 
         auto prepare = [self]() -> PrepareResult {
@@ -300,8 +327,13 @@ private:
                 return pr;
             }
             pr.valid = true;
-            pr.layerNames = std::move(pi.layers);
-            pr.renderOne  = self->makeRenderCallback(pi);
+            pr.layerNames.reserve(pi.layers.size());
+            pr.channelCounts.reserve(pi.layers.size());
+            for (const auto& li : pi.layers) {
+                pr.layerNames.push_back(li.name);
+                pr.channelCounts.push_back(li.channelCount);
+            }
+            pr.renderOne = self->makeRenderCallback(pi);
             return pr;
         };
 
@@ -314,8 +346,15 @@ private:
             runPython(cmd);
         };
 
-        InspectorDialog dlg(prepare, onLayerSelected, nullptr);
-        dlg.exec();
+        // Heap-allocate — dialog lives beyond knob_changed return
+        auto* dlg = new InspectorDialog(prepare, onLayerSelected, nullptr);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);  // auto-delete when closed
+        inspectorDialog_ = dlg;
+
+        // show() returns immediately — knob_changed exits, Nuke resumes
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
     }
 
 public:
