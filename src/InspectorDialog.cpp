@@ -731,10 +731,20 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const QSize iconSize(thumbWidth_, thumbHeight_);
+
+    // Check if any thumbnails exist — if not, skip all pixmap work
+    bool anyThumbs = false;
+    for (auto& le : layers_) {
+        if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
+    }
+
     for (auto& le : layers_) {
         if (!le.button) continue;
         le.button->setFixedSize(btnWidth, btnHeight);
         le.button->setIconSize(iconSize);
+
+        if (!anyThumbs) continue;   // just resize geometry, no icon update
+
         if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
@@ -775,7 +785,21 @@ void InspectorDialog::reflowGridFast()
 
 void InspectorDialog::onThumbnailSizeRelease()
 {
-    if (scanned_) buildGrid();
+    if (!scanned_) return;
+
+    // Check if any thumbnails exist
+    bool anyThumbs = false;
+    for (auto& le : layers_) {
+        if (!le.thumbnail.isNull()) { anyThumbs = true; break; }
+    }
+
+    if (anyThumbs) {
+        // Full rebuild for SmoothTransformation quality
+        buildGrid();
+    } else {
+        // No thumbnails — just reflow, skip expensive rebuild
+        reorderGridFast();
+    }
 }
 
 // ============================================================================
@@ -901,5 +925,6 @@ void InspectorDialog::onProxyChanged(int comboIndex)
     if (newStep == proxyStep_) return;
     proxyStep_ = newStep;
     if (!scanned_) return;
+    if (!autoThumbCheck_->isChecked()) return;   // respect checkbox
     onRegenerate();
 }

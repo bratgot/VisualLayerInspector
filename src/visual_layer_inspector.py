@@ -891,12 +891,18 @@ class VisualLayerPicker(QtWidgets.QDialog):
         btn_h = self._thumb_h + 40
         icon_size = QtCore.QSize(self._thumb_w, self._thumb_h)
 
+        # Skip all pixmap work if no thumbnails exist
+        any_thumbs = bool(self._thumb_pixmaps)
+
         for le in self._layers:
             btn = le.get('button')
             if not btn:
                 continue
             btn.setFixedSize(btn_w, btn_h)
             btn.setIconSize(icon_size)
+
+            if not any_thumbs:
+                continue  # just resize geometry, no icon update
 
             pm = self._thumb_pixmaps.get(le['name'])
             if pm and not pm.isNull():
@@ -940,8 +946,14 @@ class VisualLayerPicker(QtWidgets.QDialog):
                 grid_idx += 1
 
     def _on_size_release(self):
-        if self._scanned:
+        if not self._scanned:
+            return
+        if self._thumb_pixmaps:
+            # Thumbnails exist — full rebuild for SmoothTransformation quality
             self._build_grid()
+        else:
+            # No thumbnails — just reflow, skip expensive rebuild
+            self._reorder_grid_fast()
 
     # ================================================================
     #  UI callbacks
@@ -998,6 +1010,8 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._proxy_factor = new_factor
         if not self._scanned:
             return
+        if not self._auto_thumb_check.isChecked():
+            return  # respect checkbox
         self._on_regenerate()
 
     def closeEvent(self, event):
