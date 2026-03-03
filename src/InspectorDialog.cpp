@@ -2,7 +2,7 @@
 // InspectorDialog.cpp — Visual Layer Inspector v18.3
 //
 // v18.3: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
-//        Buttons without thumbnails use iconSize(0,0) — zero rescale cost.
+//        Buttons without thumbnails show a dark placeholder outline.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
 //
@@ -785,28 +785,45 @@ void InspectorDialog::reflowGridFast()
 void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
-    buildGrid();
+
+    // --- v18.3: rescale icons in place — no grid rebuild ---
+    const QSize iconSize(thumbWidth_, thumbHeight_);
+
+    QWidget* container = scrollArea_->widget();
+    if (container) container->setUpdatesEnabled(false);
+
+    for (auto& le : layers_) {
+        if (!le.button) continue;
+        le.button->setIconSize(iconSize);
+        if (!le.thumbnail.isNull()) {
+            QPixmap pm = QPixmap::fromImage(
+                le.thumbnail.scaled(thumbWidth_, thumbHeight_,
+                                    Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            le.button->setIcon(QIcon(pm));
+        } else {
+            le.button->setIcon(QIcon(QPixmap::fromImage(makePlaceholder())));
+        }
+    }
+
+    if (container) container->setUpdatesEnabled(true);
 }
 
 // ============================================================================
-//  Placeholder thumbnail — subtle dark card with "Generating..." text
+//  Placeholder thumbnail — dark card so user sees something is pending
 // ============================================================================
 QImage InspectorDialog::makePlaceholder() const
 {
     QImage img(thumbWidth_, thumbHeight_, QImage::Format_RGB32);
-    img.fill(QColor(34, 34, 34));
-
-    QPainter p(&img);
-    p.setPen(QColor(80, 80, 80));
-    p.drawRect(0, 0, thumbWidth_ - 1, thumbHeight_ - 1);
-
-    QFont f = p.font();
-    f.setPixelSize(std::max(10, thumbHeight_ / 8));
-    p.setFont(f);
-    p.setPen(QColor(100, 100, 100));
-    p.drawText(QRect(0, 0, thumbWidth_, thumbHeight_),
-               Qt::AlignCenter, "Generating\xe2\x80\xa6");
-    p.end();
+    img.fill(QColor(40, 40, 40));
+    // Top/bottom single-pixel border lines for subtle outline
+    for (int x = 0; x < thumbWidth_; ++x) {
+        img.setPixel(x, 0, qRgb(60, 60, 60));
+        img.setPixel(x, thumbHeight_ - 1, qRgb(60, 60, 60));
+    }
+    for (int y = 0; y < thumbHeight_; ++y) {
+        img.setPixel(0, y, qRgb(60, 60, 60));
+        img.setPixel(thumbWidth_ - 1, y, qRgb(60, 60, 60));
+    }
     return img;
 }
 

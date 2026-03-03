@@ -6,7 +6,7 @@
 //
 // v18.3: Batch all layout changes via setUpdatesEnabled(false/true) —
 //        slider drag, reflow, sort, and buildGrid all batch into ONE repaint.
-//        Buttons with no thumbnail use iconSize(0,0) to avoid rescale cost.
+//        Buttons with no thumbnail show a dark placeholder outline.
 //      without destroying/recreating. All button for category checkboxes.
 //
 // Created by Marten Blumen
@@ -29,7 +29,6 @@
 #include <QImage>
 #include <QPixmap>
 #include <QIcon>
-#include <QPainter>
 #include <QElapsedTimer>
 #include <QApplication>
 #include <QShowEvent>
