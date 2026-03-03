@@ -494,6 +494,7 @@ void InspectorDialog::renderNextThumbnail()
         entry.thumbnail = std::move(img);
         // Update the persistent button icon
         if (entry.button && !entry.thumbnail.isNull()) {
+            entry.button->setIconSize(QSize(thumbWidth_, thumbHeight_));
             QPixmap pm = QPixmap::fromImage(
                 entry.thumbnail.scaled(thumbWidth_, thumbHeight_,
                                        Qt::KeepAspectRatio, Qt::SmoothTransformation));
