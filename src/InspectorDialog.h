@@ -38,7 +38,7 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v18.1";
+static constexpr const char* kVLI_Version = "v18.2";
 
 // ============================================================================
 //  Callback types

@@ -1,8 +1,8 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 18.1
+// Version 18.2
 //
-// v18.1: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
+// v18.2: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
 //
 // Created by Marten Blumen
 // ============================================================================

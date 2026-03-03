@@ -16,7 +16,7 @@ try:
 except ImportError:
     from PySide6 import QtWidgets, QtCore, QtGui
 
-VLI_VERSION = "v18"
+VLI_VERSION = "v18.2"
 
 # Global reference to keep dialog alive (prevents GC)
 _inspector_dialog = None
