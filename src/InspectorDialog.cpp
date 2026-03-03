@@ -741,20 +741,17 @@ void InspectorDialog::resizeButtonsInPlace()
     for (auto& le : layers_) {
         if (!le.button) continue;
         le.button->setFixedSize(btnWidth, btnHeight);
-        le.button->setIconSize(iconSize);
 
         if (!anyThumbs) continue;   // just resize geometry, no icon update
 
+        le.button->setIconSize(iconSize);
         if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
                                     Qt::KeepAspectRatio, Qt::FastTransformation));
             le.button->setIcon(QIcon(pm));
-        } else {
-            QPixmap placeholder(thumbWidth_, thumbHeight_);
-            placeholder.fill(QColor(40, 40, 40));
-            le.button->setIcon(QIcon(placeholder));
         }
+        // Skip placeholder for unrendered layers — avoids expensive rescaling
     }
 }
 
@@ -869,17 +866,15 @@ void InspectorDialog::buildGrid()
         btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         btn->setFixedSize(btnWidth, btnHeight);
         btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
+        btn->setStyleSheet("QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
 
         if (!le.thumbnail.isNull()) {
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
                                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
-        } else {
-            QPixmap placeholder(thumbWidth_, thumbHeight_);
-            placeholder.fill(QColor(40, 40, 40));
-            btn->setIcon(QIcon(placeholder));
         }
+        // No placeholder pixmap — avoids expensive rescaling during slider drag
 
         std::string layerName = le.name;
         connect(btn, &QToolButton::clicked, this,
