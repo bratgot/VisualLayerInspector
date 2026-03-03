@@ -21,32 +21,23 @@ if not exist "%NUKE_DIR%" (
 )
 
 :: -------------------------------------------------------------------
-::  Detect Nuke version and copy the right DLL
+::  Copy C++ plugins into version subfolders
 :: -------------------------------------------------------------------
-set INSTALLED_DLL=0
+set VLI_DIR=%NUKE_DIR%\VisualLayerInspector
+
+if not exist "%VLI_DIR%\nuke14" mkdir "%VLI_DIR%\nuke14" 2>nul
+if not exist "%VLI_DIR%\nuke16" mkdir "%VLI_DIR%\nuke16" 2>nul
+
+if exist "%~dp0nuke14\VisualLayerInspector.dll" (
+    echo  Installing Nuke 14 plugin...
+    copy /Y "%~dp0nuke14\VisualLayerInspector.dll" "%VLI_DIR%\nuke14\" >nul
+    echo    OK: VisualLayerInspector.dll [Nuke 14]
+)
 
 if exist "%~dp0nuke16\VisualLayerInspector.dll" (
     echo  Installing Nuke 16 plugin...
-    copy /Y "%~dp0nuke16\VisualLayerInspector.dll" "%NUKE_DIR%\VisualLayerInspector.dll" >nul
-    if !errorlevel!==0 (
-        echo    OK: VisualLayerInspector.dll [Nuke 16]
-        set INSTALLED_DLL=1
-    ) else (
-        echo    FAILED — is Nuke running? Close it and try again.
-    )
-)
-
-if !INSTALLED_DLL!==0 (
-    if exist "%~dp0nuke14\VisualLayerInspector.dll" (
-        echo  Installing Nuke 14 plugin...
-        copy /Y "%~dp0nuke14\VisualLayerInspector.dll" "%NUKE_DIR%\VisualLayerInspector.dll" >nul
-        if !errorlevel!==0 (
-            echo    OK: VisualLayerInspector.dll [Nuke 14]
-            set INSTALLED_DLL=1
-        ) else (
-            echo    FAILED — is Nuke running? Close it and try again.
-        )
-    )
+    copy /Y "%~dp0nuke16\VisualLayerInspector.dll" "%VLI_DIR%\nuke16\" >nul
+    echo    OK: VisualLayerInspector.dll [Nuke 16]
 )
 
 :: -------------------------------------------------------------------
@@ -66,9 +57,9 @@ if exist "%~dp0visual_layer_inspector.py" (
 ::  Create init.py if it doesn't exist
 :: -------------------------------------------------------------------
 if not exist "%NUKE_DIR%\init.py" (
-    echo  Creating init.py...
-    echo nuke.pluginAddPath(".")> "%NUKE_DIR%\init.py"
-    echo    OK: init.py created
+    echo  Installing init.py...
+    copy /Y "%~dp0init.py" "%NUKE_DIR%\init.py" >nul
+    echo    OK: init.py installed
 ) else (
     echo  init.py already exists — skipping.
     echo    Make sure it contains: nuke.pluginAddPath(".")
@@ -78,23 +69,15 @@ if not exist "%NUKE_DIR%\init.py" (
 ::  Add menu entry if not already present
 :: -------------------------------------------------------------------
 if not exist "%NUKE_DIR%\menu.py" (
-    echo  Creating menu.py with Visual Layer Inspector entry...
-    (
-        echo import visual_layer_inspector
-        echo nuke.menu^("Nuke"^).addCommand^(
-        echo     "Filter/Visual Layer Inspector ^(Python^)",
-        echo     "visual_layer_inspector.launch^(^)",
-        echo     ""
-        echo ^)
-    ) > "%NUKE_DIR%\menu.py"
-    echo    OK: menu.py created
+    echo  Installing menu.py...
+    copy /Y "%~dp0menu.py" "%NUKE_DIR%\menu.py" >nul
+    echo    OK: menu.py installed
 ) else (
     findstr /C:"visual_layer_inspector" "%NUKE_DIR%\menu.py" >nul 2>&1
     if !errorlevel! neq 0 (
         echo  Adding menu entry to existing menu.py...
         echo.>> "%NUKE_DIR%\menu.py"
-        echo import visual_layer_inspector>> "%NUKE_DIR%\menu.py"
-        echo nuke.menu("Nuke").addCommand("Filter/Visual Layer Inspector (Python)", "visual_layer_inspector.launch()", "")>> "%NUKE_DIR%\menu.py"
+        type "%~dp0menu.py" >> "%NUKE_DIR%\menu.py"
         echo    OK: menu entry added
     ) else (
         echo  menu.py already has Visual Layer Inspector entry — skipping.
@@ -105,15 +88,8 @@ if not exist "%NUKE_DIR%\menu.py" (
 ::  Nuke version note
 :: -------------------------------------------------------------------
 echo.
-if !INSTALLED_DLL!==1 (
-    echo  NOTE: The installer picked one DLL. If you need the other
-    echo  Nuke version, manually copy the correct DLL from:
-    if exist "%~dp0nuke14\VisualLayerInspector.dll" echo    nuke14\VisualLayerInspector.dll
-    if exist "%~dp0nuke16\VisualLayerInspector.dll" echo    nuke16\VisualLayerInspector.dll
-    echo  to: %NUKE_DIR%\VisualLayerInspector.dll
-) else (
-    echo  No C++ plugin found in package — Python version installed only.
-)
+echo  Both Nuke 14 and 16 plugins installed — init.py
+echo  auto-detects which version to load at startup.
 
 echo.
 echo  ==========================================
