@@ -294,17 +294,6 @@ class VisualLayerPicker(QtWidgets.QDialog):
         self._regen_btn.clicked.connect(self._on_regenerate)
         row2.addWidget(self._regen_btn)
 
-        row2.addSpacing(10)
-
-        self._auto_thumb_check = QtWidgets.QCheckBox("Auto Thumbnails")
-        self._auto_thumb_check.setChecked(True)
-        self._auto_thumb_check.setStyleSheet("QCheckBox { font-size: 12px; color: #bbbbbb; }")
-        self._auto_thumb_check.setToolTip(
-            "When checked, thumbnails generate automatically on launch.\n"
-            "Uncheck for large EXRs \u2014 use Regenerate to render manually."
-        )
-        row2.addWidget(self._auto_thumb_check)
-
         row2.addStretch()
         controls.addLayout(row2)
 
@@ -419,13 +408,7 @@ class VisualLayerPicker(QtWidgets.QDialog):
             )
         )
 
-        if self._auto_thumb_check.isChecked():
-            self._begin_rendering()
-        else:
-            self._regen_btn.setEnabled(True)
-            self._progress.setRange(0, 1)
-            self._progress.setValue(0)
-            self._progress.setFormat(u"Thumbnails disabled \u2014 click Regenerate")
+        self._begin_rendering()
 
     # ================================================================
     #  Layer preparation

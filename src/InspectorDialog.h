@@ -168,8 +168,6 @@ private:
     QLabel*        statusLabel_    = nullptr;
     QWidget*       controlsWidget_ = nullptr;
     QLabel*        emptyLabel_     = nullptr;
-    QCheckBox*     autoThumbCheck_ = nullptr;
-
     std::map<LayerCategory, QCheckBox*> categoryChecks_;
     std::vector<QLabel*>     groupHeaders_;
 };
