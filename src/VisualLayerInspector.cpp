@@ -332,8 +332,8 @@ public:
             "\xe2\x80\xa2 The Python version writes temporary JPEGs via Nuke\xe2\x80\x99s Write node<br>"
             "<br>"
             "<b>Performance:</b><br>"
-            "\xe2\x80\xa2 Full Quality: ~100\xe2\x80\x93300 ms/layer depending on resolution<br>"
-            "\xe2\x80\xa2 4x Proxy: ~10\xe2\x80\x9350 ms/layer \xe2\x80\x94 recommended for browsing<br>"
+            "\xe2\x80\xa2 Full Quality: ~100\xe2\x80\x93" "300 ms/layer depending on resolution<br>"
+            "\xe2\x80\xa2 4x Proxy: ~10\xe2\x80\x93" "50 ms/layer \xe2\x80\x94 recommended for browsing<br>"
             "\xe2\x80\xa2 8x Proxy: fastest, suitable for very large EXR sequences<br>"
             "\xe2\x80\xa2 Slider resizing is geometry-only during drag, icons refresh on release"
         );
