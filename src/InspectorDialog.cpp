@@ -184,12 +184,12 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     sortCombo_ = new QComboBox;
     sortCombo_->addItem("Alphabetical",   static_cast<int>(SortMode::Alphabetical));
-    sortCombo_->addItem("Type Group",      static_cast<int>(SortMode::TypeGroup));
+    sortCombo_->addItem("Type AOV",      static_cast<int>(SortMode::TypeGroup));
     sortCombo_->addItem("Channel Count",   static_cast<int>(SortMode::ChannelCount));
     sortCombo_->addItem("Original Order",  static_cast<int>(SortMode::OriginalOrder));
     sortCombo_->setCurrentIndex(static_cast<int>(sortMode_));
     sortCombo_->setToolTip(
-        "Type Group auto-categorises layers:\n"
+        "Type AOV auto-categorises layers:\n"
         "  Lighting \xe2\x80\x94 diffuse, specular, reflection, emission, sss...\n"
         "  Utility \xe2\x80\x94 depth, normal, position, motion, uv, ao...\n"
         "  Data \xe2\x80\x94 id, mask, matte, object, material...\n"
@@ -355,7 +355,7 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     footerLayout->addWidget(credit);
     footerLayout->addStretch();
 
-    shuffleBtn_ = new QPushButton("Shuffle (shift+click to select)");
+    shuffleBtn_ = new QPushButton("Shuffle Export (shift+click to select)");
     shuffleBtn_->setFixedHeight(35);
     shuffleBtn_->setMinimumWidth(200);
     shuffleBtn_->setEnabled(false);
@@ -1032,7 +1032,13 @@ void InspectorDialog::updateSelectionStyle(int layerIdx)
 {
     auto& le = layers_[layerIdx];
     if (!le.button) return;
-    if (le.pinned) {
+    if (le.pinned && le.selected) {
+        // Pinned + active: blue outer, pink inner via thick border + pink background peek
+        le.button->setStyleSheet(
+            "QToolButton { background-color: #cc6699; "
+            "border: 3px solid #5599dd; "
+            "margin: 0px; padding: 1px; }");
+    } else if (le.pinned) {
         // Shift-clicked: blue border (sticky)
         le.button->setStyleSheet(
             "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
@@ -1055,13 +1061,13 @@ void InspectorDialog::updateShuffleButton()
 
     if (count == 0) {
         shuffleBtn_->setEnabled(false);
-        shuffleBtn_->setText("Shuffle (shift+click to select)");
+        shuffleBtn_->setText("Shuffle Export (shift+click to select)");
         shuffleBtn_->setStyleSheet(
             "QPushButton { font-weight: bold; background-color: #334455; }"
             "QPushButton:disabled { background-color: #333333; color: #666666; }");
     } else {
         shuffleBtn_->setEnabled(true);
-        shuffleBtn_->setText(QString("Shuffle %1 layer%2")
+        shuffleBtn_->setText(QString("Shuffle Export %1 layer%2")
             .arg(count).arg(count > 1 ? "s" : ""));
 
         // Shift from blue (#334455) toward pink (#aa3366) as more layers selected
