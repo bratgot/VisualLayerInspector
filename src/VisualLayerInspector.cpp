@@ -1,8 +1,8 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 18.3
+// Version 18.4
 //
-// v18.3: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
+// v18.4: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -43,7 +43,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v18.3\n\n"
+    "Visual Layer Inspector v18.4\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -342,7 +342,7 @@ public:
 
         Divider(f, "");
         Text_knob(f,
-            "<i style='color:#777;'>Created by Marten Blumen  \xe2\x80\xa2  v18.3</i>");
+            "<i style='color:#777;'>Created by Marten Blumen  \xe2\x80\xa2  v18.4</i>");
     }
 
     int knob_changed(Knob* k) override
