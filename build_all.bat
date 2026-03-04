@@ -22,6 +22,8 @@ set QT6_SDK=C:/Qt/6.5.3/msvc2019_64
 
 set INSTALL_DIR=%USERPROFILE%\.nuke\VisualLayerInspector
 
+set VERSION=v18.3
+
 :: -------------------------------------------------------------------
 ::  Remember current branch and stash any uncommitted changes
 :: -------------------------------------------------------------------
@@ -170,11 +172,11 @@ copy /Y "INSTALL.md" "%PKG_DIR%\"
 copy /Y "install.bat" "%PKG_DIR%\"
 
 :: Create zip using PowerShell
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\VisualLayerInspector' -DestinationPath 'dist\VisualLayerInspector_v18.3.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'dist\VisualLayerInspector' -DestinationPath 'dist\VisualLayerInspector_!VERSION!.zip' -Force"
 if !errorlevel! neq 0 (
     echo WARNING: Could not create zip — files are in dist\VisualLayerInspector\
 ) else (
-    echo Package created: dist\VisualLayerInspector_v18.3.zip
+    echo Package created: dist\VisualLayerInspector_!VERSION!.zip
 )
 echo.
 
@@ -192,7 +194,7 @@ echo ============================================================
 echo  Done! Both versions installed:
 echo    Nuke 14: %INSTALL_DIR%\nuke14\VisualLayerInspector.dll
 echo    Nuke 16: %INSTALL_DIR%\nuke16\VisualLayerInspector.dll
-echo    Package: dist\VisualLayerInspector_v18.3.zip
+echo    Package: dist\VisualLayerInspector_!VERSION!.zip
 echo ============================================================
 goto :end
 
