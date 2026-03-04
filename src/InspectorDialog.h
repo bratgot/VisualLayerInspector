@@ -85,6 +85,20 @@ enum class SortMode : int {
 };
 
 // ============================================================================
+//  Settings passed from Op knobs to dialog
+// ============================================================================
+struct InspectorSettings {
+    int       proxyStep     = 1;
+    SortMode  sortMode      = SortMode::TypeGroup;
+    int       thumbSize     = 200;
+    bool      showLighting    = true;
+    bool      showUtility     = true;
+    bool      showData        = true;
+    bool      showCryptomatte = true;
+    bool      showCustom      = true;
+};
+
+// ============================================================================
 //  InspectorDialog
 // ============================================================================
 class InspectorDialog : public QDialog {
@@ -93,6 +107,7 @@ class InspectorDialog : public QDialog {
 public:
     explicit InspectorDialog(PrepareCallback prepare,
                              LayerCallback   onLayerSelected,
+                             const InspectorSettings& settings = InspectorSettings(),
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
 
@@ -139,7 +154,7 @@ private:
     bool          scanned_       = false;
     bool          showFired_     = false;
     QElapsedTimer perfTimer_;
-    int           proxyStep_     = 4;
+    int           proxyStep_     = 1;
     int           thumbWidth_    = 200;
     int           thumbHeight_   = 120;
     SortMode      sortMode_      = SortMode::TypeGroup;

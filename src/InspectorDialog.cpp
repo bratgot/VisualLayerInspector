@@ -126,10 +126,15 @@ void InspectorDialog::sortLayers()
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
+                                 const InspectorSettings& settings,
                                  QWidget* parent)
     : QDialog(parent)
     , prepare_(std::move(prepare))
     , onLayerSelected_(std::move(onLayerSelected))
+    , proxyStep_(settings.proxyStep)
+    , thumbWidth_(settings.thumbSize)
+    , thumbHeight_(static_cast<int>(settings.thumbSize * kAspectRatio))
+    , sortMode_(settings.sortMode)
 {
     setWindowTitle(QString("Visual Layer Inspector  [%1]").arg(kVLI_Version));
     setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint);
@@ -180,7 +185,7 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     sortCombo_->addItem("Type Group",      static_cast<int>(SortMode::TypeGroup));
     sortCombo_->addItem("Channel Count",   static_cast<int>(SortMode::ChannelCount));
     sortCombo_->addItem("Original Order",  static_cast<int>(SortMode::OriginalOrder));
-    sortCombo_->setCurrentIndex(1);
+    sortCombo_->setCurrentIndex(static_cast<int>(sortMode_));
     sortCombo_->setToolTip(
         "Type Group auto-categorises layers:\n"
         "  Lighting \xe2\x80\x94 diffuse, specular, reflection, emission, sss...\n"
@@ -207,13 +212,13 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
 
     sizeSlider_ = new QSlider(Qt::Horizontal);
     sizeSlider_->setRange(kMinThumbSize, kMaxThumbSize);
-    sizeSlider_->setValue(kDefaultThumbSize);
+    sizeSlider_->setValue(thumbWidth_);
     sizeSlider_->setFixedWidth(140);
     connect(sizeSlider_, &QSlider::valueChanged, this, &InspectorDialog::onThumbnailSizeDrag);
     connect(sizeSlider_, &QSlider::sliderReleased, this, &InspectorDialog::onThumbnailSizeRelease);
     row1->addWidget(sizeSlider_);
 
-    sizeLabel_ = new QLabel(QString::number(kDefaultThumbSize) + "px");
+    sizeLabel_ = new QLabel(QString::number(thumbWidth_) + "px");
     sizeLabel_->setStyleSheet("font-size: 12px; color: #999999; min-width: 45px;");
     row1->addWidget(sizeLabel_);
 
@@ -226,18 +231,18 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     catLabel->setStyleSheet("font-size: 12px; color: #999999;");
     catLayout->addWidget(catLabel);
 
-    struct CatStyle { LayerCategory cat; const char* colour; };
+    struct CatStyle { LayerCategory cat; const char* colour; bool checked; };
     CatStyle styles[] = {
-        { LayerCategory::Lighting,    "#ddaa44" },
-        { LayerCategory::Utility,     "#44aadd" },
-        { LayerCategory::Data,        "#aa66cc" },
-        { LayerCategory::Cryptomatte, "#66cc66" },
-        { LayerCategory::Custom,      "#999999" },
+        { LayerCategory::Lighting,    "#ddaa44", settings.showLighting },
+        { LayerCategory::Utility,     "#44aadd", settings.showUtility },
+        { LayerCategory::Data,        "#aa66cc", settings.showData },
+        { LayerCategory::Cryptomatte, "#66cc66", settings.showCryptomatte },
+        { LayerCategory::Custom,      "#999999", settings.showCustom },
     };
 
     for (auto& s : styles) {
         auto* cb = new QCheckBox(layerCategoryName(s.cat));
-        cb->setChecked(true);
+        cb->setChecked(s.checked);
         cb->setStyleSheet(
             QString("QCheckBox { font-size: 12px; color: %1; spacing: 4px; }"
                     "QCheckBox::indicator { width: 14px; height: 14px; }")
@@ -280,7 +285,12 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     proxyCombo_->addItem("2x Proxy",     2);
     proxyCombo_->addItem("4x Proxy",     4);
     proxyCombo_->addItem("8x Proxy",     8);
-    proxyCombo_->setCurrentIndex(2);
+    // Map proxyStep_ to combo index
+    int proxyIdx = 0;
+    for (int i = 0; i < proxyCombo_->count(); ++i) {
+        if (proxyCombo_->itemData(i).toInt() == proxyStep_) { proxyIdx = i; break; }
+    }
+    proxyCombo_->setCurrentIndex(proxyIdx);
     connect(proxyCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &InspectorDialog::onProxyChanged);
     row3->addWidget(proxyCombo_);

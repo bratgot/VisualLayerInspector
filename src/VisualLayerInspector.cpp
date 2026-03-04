@@ -238,11 +238,110 @@ public:
 
     void knobs(Knob_Callback f) override
     {
-        Text_knob(f, "Select a node with multiple layers/AOVs, then click below.");
+        // ── Title ──
+        Text_knob(f,
+            "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
+            "Visual Layer Inspector</span>");
+        Text_knob(f,
+            "<span style='color:#999;'>"
+            "Browse and preview every layer/AOV on a multi-layer input. "
+            "Click a thumbnail to switch the active Viewer.</span>");
         Divider(f, "");
+
+        // ── Settings ──
+        static const char* const kProxyNames[] = {
+            "Full Quality", "2x Proxy", "4x Proxy", "8x Proxy", nullptr
+        };
+        Enumeration_knob(f, &proxyIdx_, kProxyNames, "proxy", "proxy");
+        Tooltip(f, "Thumbnail rendering resolution.\n"
+                   "Higher proxy = faster but lower quality.\n"
+                   "Full Quality fetches every pixel.\n"
+                   "Change takes effect on next Regenerate.");
+
+        static const char* const kSortNames[] = {
+            "Alphabetical", "Type Group", "Channel Count", "Original Order", nullptr
+        };
+        Enumeration_knob(f, &sortIdx_, kSortNames, "sort_mode", "sort");
+        Tooltip(f, "How layers are ordered in the grid.\n\n"
+                   "Type Group auto-categorises layers:\n"
+                   "  Lighting \xe2\x80\x94 diffuse, specular, reflection, emission, sss...\n"
+                   "  Utility \xe2\x80\x94 depth, normal, position, motion, uv, ao...\n"
+                   "  Data \xe2\x80\x94 id, mask, matte, object, material...\n"
+                   "  Cryptomatte \xe2\x80\x94 crypto*\n"
+                   "  Custom \xe2\x80\x94 everything else");
+
+        Int_knob(f, &thumbSize_, "thumb_size", "thumbnail size");
+        SetRange(f, 80, 400);
+        Tooltip(f, "Width in pixels for each thumbnail in the grid.\n"
+                   "Smaller = more layers visible, larger = more detail.");
+
+        Divider(f, "categories");
+
+        Bool_knob(f, &showLighting_, "show_lighting", "Lighting");
+        SetFlags(f, Knob::STARTLINE);
+        Bool_knob(f, &showUtility_, "show_utility", "Utility");
+        ClearFlags(f, Knob::STARTLINE);
+        Bool_knob(f, &showData_, "show_data", "Data");
+        ClearFlags(f, Knob::STARTLINE);
+        Bool_knob(f, &showCryptomatte_, "show_cryptomatte", "Cryptomatte");
+        ClearFlags(f, Knob::STARTLINE);
+        Bool_knob(f, &showCustom_, "show_custom", "Custom");
+        ClearFlags(f, Knob::STARTLINE);
+
+        Divider(f, "");
+
         Button(f, "launch_inspector", "Launch Inspector");
+        Tooltip(f, "Open the thumbnail grid window.\n"
+                   "Thumbnails generate automatically.\n"
+                   "The window is modeless \xe2\x80\x94 Nuke stays fully interactive.");
+
         Divider(f, "");
-        Text_knob(f, "<i>Created by Marten Blumen  \xe2\x80\xa2  v18.3</i>");
+
+        // ── Usage Notes ──
+        BeginClosedGroup(f, "usage_notes", "usage notes");
+        Text_knob(f,
+            "<b>For Artists:</b><br>"
+            "\xe2\x80\xa2 Select any node with multi-layer data (e.g. an EXR Read node)<br>"
+            "\xe2\x80\xa2 Click <b>Launch Inspector</b> to open the thumbnail grid<br>"
+            "\xe2\x80\xa2 Click any thumbnail to switch the Viewer to that layer<br>"
+            "\xe2\x80\xa2 Use the <b>Filter</b> box to search by name (e.g. 'spec', 'depth')<br>"
+            "\xe2\x80\xa2 Use <b>Stop</b> to pause thumbnail generation on heavy EXRs<br>"
+            "\xe2\x80\xa2 Change <b>Proxy</b> before launching for faster browsing<br>"
+            "\xe2\x80\xa2 The window stays on top \xe2\x80\x94 Nuke is fully interactive underneath<br>"
+            "<br>"
+            "<b>Tips:</b><br>"
+            "\xe2\x80\xa2 <b>Type Group</b> sort auto-categorises AOVs into Lighting, Utility, "
+            "Data, Cryptomatte, and Custom groups<br>"
+            "\xe2\x80\xa2 Uncheck categories to hide layers you don't need<br>"
+            "\xe2\x80\xa2 Drag the <b>Size</b> slider to resize thumbnails \xe2\x80\x94 "
+            "smaller shows more layers at once<br>"
+            "\xe2\x80\xa2 Click <b>Regenerate</b> after changing Proxy to re-render thumbnails"
+        );
+        EndGroup(f);
+
+        // ── Technical Notes ──
+        BeginClosedGroup(f, "tech_notes", "technical notes");
+        Text_knob(f,
+            "<b>Technical Details:</b><br>"
+            "\xe2\x80\xa2 Thumbnails render via the Row API with strided pixel fetching<br>"
+            "\xe2\x80\xa2 Each layer is rendered one at a time to keep Nuke responsive<br>"
+            "\xe2\x80\xa2 Proxy 2x/4x/8x reduces thumbnail resolution proportionally<br>"
+            "\xe2\x80\xa2 The dialog is modeless (non-blocking) \xe2\x80\x94 it does not lock Nuke<br>"
+            "\xe2\x80\xa2 Layer classification uses pattern matching on channel name prefixes<br>"
+            "\xe2\x80\xa2 Thumbnails are stored in memory, not written to disk (C++ version)<br>"
+            "\xe2\x80\xa2 The Python version writes temporary JPEGs via Nuke\xe2\x80\x99s Write node<br>"
+            "<br>"
+            "<b>Performance:</b><br>"
+            "\xe2\x80\xa2 Full Quality: ~100\xe2\x80\x93300 ms/layer depending on resolution<br>"
+            "\xe2\x80\xa2 4x Proxy: ~10\xe2\x80\x9350 ms/layer \xe2\x80\x94 recommended for browsing<br>"
+            "\xe2\x80\xa2 8x Proxy: fastest, suitable for very large EXR sequences<br>"
+            "\xe2\x80\xa2 Slider resizing is geometry-only during drag, icons refresh on release"
+        );
+        EndGroup(f);
+
+        Divider(f, "");
+        Text_knob(f,
+            "<i style='color:#777;'>Created by Marten Blumen  \xe2\x80\xa2  v18.3</i>");
     }
 
     int knob_changed(Knob* k) override
@@ -256,6 +355,16 @@ public:
 
 private:
     QPointer<InspectorDialog> inspectorDialog_;
+
+    // Knob storage
+    int  proxyIdx_        = 0;   // 0=Full, 1=2x, 2=4x, 3=8x
+    int  sortIdx_         = 1;   // 1=Type Group
+    int  thumbSize_       = 200;
+    bool showLighting_    = true;
+    bool showUtility_     = true;
+    bool showData_        = true;
+    bool showCryptomatte_ = true;
+    bool showCustom_      = true;
 
     struct PreparedInput {
         Iop*                       iop = nullptr;
@@ -343,8 +452,22 @@ private:
             runPython(cmd);
         };
 
+        // Build settings from knob values
+        static const int proxySteps[] = {1, 2, 4, 8};
+        InspectorSettings settings;
+        int pi = std::max(0, std::min(proxyIdx_, 3));
+        int si = std::max(0, std::min(sortIdx_, 3));
+        settings.proxyStep     = proxySteps[pi];
+        settings.sortMode      = static_cast<SortMode>(si);
+        settings.thumbSize     = std::max(80, std::min(thumbSize_, 400));
+        settings.showLighting    = showLighting_;
+        settings.showUtility     = showUtility_;
+        settings.showData        = showData_;
+        settings.showCryptomatte = showCryptomatte_;
+        settings.showCustom      = showCustom_;
+
         // Heap-allocate — dialog lives beyond knob_changed return
-        auto* dlg = new InspectorDialog(prepare, onLayerSelected, nullptr);
+        auto* dlg = new InspectorDialog(prepare, onLayerSelected, settings, nullptr);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         inspectorDialog_ = dlg;
 
