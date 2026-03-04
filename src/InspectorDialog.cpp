@@ -365,18 +365,27 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
         "QPushButton:disabled { background-color: #333333; color: #666666; }");
     connect(shuffleBtn_, &QPushButton::clicked, this, [this]() {
         if (!onCreateShuffle_) return;
-        std::vector<std::string> selected;
-        for (auto& le : layers_)
-            if (le.selected) selected.push_back(le.name);
-        if (!selected.empty()) {
-            onCreateShuffle_(selected);
-            // Clear selection after creating
-            for (auto& le : layers_) {
-                le.selected = false;
-                if (le.button)
-                    le.button->setStyleSheet(
-                        "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+        // Collect all pinned layers + the currently viewed layer
+        std::vector<std::string> toExport;
+        bool currentIncluded = false;
+        for (auto& le : layers_) {
+            if (le.pinned) {
+                toExport.push_back(le.name);
+                if (le.name == currentLayer_) currentIncluded = true;
             }
+        }
+        if (!currentLayer_.empty() && !currentIncluded)
+            toExport.push_back(currentLayer_);
+
+        if (!toExport.empty()) {
+            onCreateShuffle_(toExport);
+            // Clear pins after export, keep currentLayer_ for viewing
+            for (auto& le : layers_) {
+                le.pinned = false;
+                le.selected = false;
+            }
+            for (int j = 0; j < static_cast<int>(layers_.size()); ++j)
+                updateSelectionStyle(j);
             updateShuffleButton();
         }
     });
@@ -961,22 +970,15 @@ void InspectorDialog::buildGrid()
                 [this, layerName, layerIdx]() {
                     bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
                     if (shift) {
-                        // Toggle pinned (sticky) selection
+                        // Toggle pinned (sticky selection for export)
                         layers_[layerIdx].pinned = !layers_[layerIdx].pinned;
                         layers_[layerIdx].selected = layers_[layerIdx].pinned;
                     } else {
-                        // Clear all non-pinned selections
-                        for (int j = 0; j < static_cast<int>(layers_.size()); ++j) {
-                            if (!layers_[j].pinned) {
-                                layers_[j].selected = false;
-                            }
-                        }
-                        // Select this one (non-pinned active highlight)
-                        layers_[layerIdx].selected = true;
+                        // Normal click: view this layer
                         currentLayer_ = layerName;
                         if (onLayerSelected_) onLayerSelected_(layerName);
                     }
-                    // Update all button styles
+                    // Update all button styles (pink follows currentLayer_)
                     for (int j = 0; j < static_cast<int>(layers_.size()); ++j)
                         updateSelectionStyle(j);
                     updateShuffleButton();
@@ -1032,18 +1034,19 @@ void InspectorDialog::updateSelectionStyle(int layerIdx)
 {
     auto& le = layers_[layerIdx];
     if (!le.button) return;
-    if (le.pinned && le.selected) {
-        // Pinned + active: blue outer, pink inner via thick border + pink background peek
+    bool isViewing = (le.name == currentLayer_);
+    if (le.pinned && isViewing) {
+        // Pinned + currently viewing: blue outer, pink inside
         le.button->setStyleSheet(
             "QToolButton { background-color: #cc6699; "
             "border: 3px solid #5599dd; "
             "margin: 0px; padding: 1px; }");
     } else if (le.pinned) {
-        // Shift-clicked: blue border (sticky)
+        // Pinned only: blue border
         le.button->setStyleSheet(
             "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
-    } else if (le.selected) {
-        // Normal click: pink border (active)
+    } else if (isViewing) {
+        // Currently viewing: pink border
         le.button->setStyleSheet(
             "QToolButton { background-color: #3a2a3a; border: 2px solid #cc6699; }");
     } else {
@@ -1055,9 +1058,18 @@ void InspectorDialog::updateSelectionStyle(int layerIdx)
 void InspectorDialog::updateShuffleButton()
 {
     if (!shuffleBtn_) return;
+
+    // Count exportable layers: all pinned + the currently viewed layer
     int count = 0;
-    for (auto& le : layers_)
-        if (le.selected) ++count;
+    bool currentIncluded = false;
+    for (auto& le : layers_) {
+        if (le.pinned) {
+            ++count;
+            if (le.name == currentLayer_) currentIncluded = true;
+        }
+    }
+    // Add current layer if it's not already pinned
+    if (!currentLayer_.empty() && !currentIncluded) ++count;
 
     if (count == 0) {
         shuffleBtn_->setEnabled(false);
