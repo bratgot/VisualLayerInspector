@@ -451,6 +451,21 @@ private:
             runPython(cmd);
         };
 
+        std::string nodeName = node()->fullName();
+        auto onCreateShuffle = [nodeName](const std::string& layerName) {
+            std::string cmd =
+                "import nuke\n"
+                "vli = nuke.toNode('" + nodeName + "')\n"
+                "inp = vli.input(0) if vli else None\n"
+                "if inp:\n"
+                "    for n in nuke.selectedNodes(): n.setSelected(False)\n"
+                "    inp.setSelected(True)\n"
+                "    s = nuke.createNode('Shuffle2')\n"
+                "    s['in1'].setValue('" + layerName + "')\n"
+                "    s['label'].setValue('[value in1]')\n";
+            runPython(cmd);
+        };
+
         // Build settings from knob values
         static const int proxySteps[] = {1, 2, 4, 8};
         InspectorSettings settings;
@@ -466,7 +481,7 @@ private:
         settings.showCustom      = showCustom_;
 
         // Heap-allocate — dialog lives beyond knob_changed return
-        auto* dlg = new InspectorDialog(prepare, onLayerSelected, settings, nullptr);
+        auto* dlg = new InspectorDialog(prepare, onLayerSelected, onCreateShuffle, settings, nullptr);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         inspectorDialog_ = dlg;
 
