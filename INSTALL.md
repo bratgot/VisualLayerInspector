@@ -7,13 +7,14 @@ VisualLayerInspector/
 ├── nuke14/VisualLayerInspector.dll   ← C++ plugin for Nuke 14.x
 ├── nuke16/VisualLayerInspector.dll   ← C++ plugin for Nuke 16.x
 ├── init.py                           ← Nuke startup config (auto-detects version)
+├── menu.py                           ← Adds node to Filter menu
 ├── install.bat                       ← Automatic installer
 └── INSTALL.md                        ← This file
 ```
 
 ## Quick install (Windows)
 
-Double-click **install.bat** — it copies both DLLs and the startup config automatically.
+Double-click **install.bat** — it copies everything to the right place automatically.
 
 ## Manual install
 
@@ -24,15 +25,10 @@ Double-click **install.bat** — it copies both DLLs and the startup config auto
 2. Copy the included `init.py` to your `.nuke` folder (if you don't already have one).
    It auto-detects your Nuke version and loads the correct DLL.
 
-3. If you already have an `init.py`, add this to it:
+3. Copy the included `menu.py` to your `.nuke` folder (if you don't already have one).
+   If you already have a `menu.py`, add this line to it:
    ```python
-   import nuke, os
-   _vli_dir = os.path.join(os.path.expanduser("~"), ".nuke", "VisualLayerInspector")
-   _nuke_major = nuke.NUKE_VERSION_MAJOR
-   if _nuke_major >= 16:
-       nuke.pluginAddPath(os.path.join(_vli_dir, "nuke16"))
-   elif _nuke_major >= 14:
-       nuke.pluginAddPath(os.path.join(_vli_dir, "nuke14"))
+   nuke.menu("Nodes").addCommand("Filter/VisualLayerInspector", "nuke.createNode('VisualLayerInspector')", "")
    ```
 
 4. Restart Nuke. The node appears under **Filter > VisualLayerInspector**.
