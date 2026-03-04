@@ -451,13 +451,17 @@ private:
             runPython(cmd);
         };
 
-        std::string nodeName = node()->fullName();
-        auto onCreateShuffle = [nodeName](const std::string& layerName) {
+        auto onCreateShuffle = [](const std::string& layerName) {
             std::string cmd =
                 "import nuke\n"
-                "vli = nuke.toNode('" + nodeName + "')\n"
-                "inp = vli.input(0) if vli else None\n"
-                "if inp:\n"
+                "# Find the VisualLayerInspector node and its input\n"
+                "vli = None\n"
+                "for n in nuke.allNodes('VisualLayerInspector'):\n"
+                "    if n.input(0):\n"
+                "        vli = n\n"
+                "        break\n"
+                "if vli and vli.input(0):\n"
+                "    inp = vli.input(0)\n"
                 "    for n in nuke.selectedNodes(): n.setSelected(False)\n"
                 "    inp.setSelected(True)\n"
                 "    s = nuke.createNode('Shuffle2')\n"
