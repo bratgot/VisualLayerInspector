@@ -51,7 +51,7 @@ static const char* const kHelp  =
     "The Viewer updates live when you click a layer.\n\n"
     "Thumbnails render progressively using the Row API with strided fetching "
     "for minimal memory usage. Use Proxy mode for faster browsing.\n\n"
-    "Sort by Type Group to auto-categorise layers into Lighting, Utility, "
+    "Sort by Type AOV to auto-categorise layers into Lighting, Utility, "
     "Data, Cryptomatte, and Custom groups.";
 
 static constexpr int kThumbMaxWidth  = 240;
@@ -258,11 +258,11 @@ public:
                    "Change takes effect on next Regenerate.");
 
         static const char* const kSortNames[] = {
-            "Alphabetical", "Type Group", "Channel Count", "Original Order", nullptr
+            "Alphabetical", "Type AOV", "Channel Count", "Original Order", nullptr
         };
         Enumeration_knob(f, &sortIdx_, kSortNames, "sort_mode", "sort");
         Tooltip(f, "How layers are ordered in the grid.\n\n"
-                   "Type Group auto-categorises layers:\n"
+                   "Type AOV auto-categorises layers:\n"
                    "  Lighting \xe2\x80\x94 diffuse, specular, reflection, emission, sss...\n"
                    "  Utility \xe2\x80\x94 depth, normal, position, motion, uv, ao...\n"
                    "  Data \xe2\x80\x94 id, mask, matte, object, material...\n"
@@ -307,11 +307,11 @@ public:
             "\xe2\x80\xa2 Use <b>Stop</b> to pause thumbnail generation on heavy EXRs<br>"
             "\xe2\x80\xa2 Change <b>Proxy</b> before launching for faster browsing<br>"
             "\xe2\x80\xa2 <b>Shift+click</b> thumbnails to select layers for Shuffle export<br>"
-            "\xe2\x80\xa2 Click <b>Shuffle</b> to create Shuffle2 nodes for all selected layers<br>"
+            "\xe2\x80\xa2 Click <b>Shuffle Export</b> to create Shuffle2 nodes for all selected layers<br>"
             "\xe2\x80\xa2 The window stays on top \xe2\x80\x94 Nuke is fully interactive underneath<br>"
             "<br>"
             "<b>Tips:</b><br>"
-            "\xe2\x80\xa2 <b>Type Group</b> sort auto-categorises AOVs into Lighting, Utility, "
+            "\xe2\x80\xa2 <b>Type AOV</b> sort auto-categorises AOVs into Lighting, Utility, "
             "Data, Cryptomatte, and Custom groups<br>"
             "\xe2\x80\xa2 Uncheck categories to hide layers you don't need<br>"
             "\xe2\x80\xa2 Drag the <b>Size</b> slider to resize thumbnails \xe2\x80\x94 "
@@ -359,7 +359,7 @@ private:
 
     // Knob storage
     int  proxyIdx_        = 0;   // 0=Full, 1=2x, 2=4x, 3=8x
-    int  sortIdx_         = 1;   // 1=Type Group
+    int  sortIdx_         = 1;   // 1=Type AOV
     int  thumbSize_       = 200;
     bool showLighting_    = true;
     bool showUtility_     = true;
