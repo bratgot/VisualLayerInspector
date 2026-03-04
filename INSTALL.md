@@ -28,7 +28,8 @@ Double-click **install.bat** — it copies everything to the right place automat
 3. Copy the included `menu.py` to your `.nuke` folder (if you don't already have one).
    If you already have a `menu.py`, add this line to it:
    ```python
-   nuke.menu("Nodes").addCommand("Filter/VisualLayerInspector", "nuke.createNode('VisualLayerInspector')", "")
+   toolbar = nuke.toolbar("Nodes")
+   toolbar.addCommand("Filter/VisualLayerInspector", "nuke.createNode('VisualLayerInspector')", "F4", icon="Viewer.png")
    ```
 
 4. Restart Nuke. The node appears under **Filter > VisualLayerInspector**.
