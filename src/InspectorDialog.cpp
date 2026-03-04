@@ -126,11 +126,13 @@ void InspectorDialog::sortLayers()
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
+                                 LayerCallback   onCreateShuffle,
                                  const InspectorSettings& settings,
                                  QWidget* parent)
     : QDialog(parent)
     , prepare_(std::move(prepare))
     , onLayerSelected_(std::move(onLayerSelected))
+    , onCreateShuffle_(std::move(onCreateShuffle))
     , proxyStep_(settings.proxyStep)
     , thumbWidth_(settings.thumbSize)
     , thumbHeight_(static_cast<int>(settings.thumbSize * kAspectRatio))
@@ -352,6 +354,20 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     credit->setStyleSheet("font-size: 11px; color: #777777; font-style: italic;");
     footerLayout->addWidget(credit);
     footerLayout->addStretch();
+
+    shuffleBtn_ = new QPushButton("Shuffle: (none)");
+    shuffleBtn_->setFixedHeight(35);
+    shuffleBtn_->setMinimumWidth(160);
+    shuffleBtn_->setEnabled(false);
+    shuffleBtn_->setToolTip("Create a Shuffle node that pipes the selected layer to RGB");
+    shuffleBtn_->setStyleSheet(
+        "QPushButton { font-weight: bold; background-color: #334455; }"
+        "QPushButton:disabled { background-color: #333333; color: #666666; }");
+    connect(shuffleBtn_, &QPushButton::clicked, this, [this]() {
+        if (onCreateShuffle_ && !currentLayer_.empty())
+            onCreateShuffle_(currentLayer_);
+    });
+    footerLayout->addWidget(shuffleBtn_);
 
     auto* closeRgbaBtn = new QPushButton("Close \xe2\x86\x92 RGBA");
     closeRgbaBtn->setFixedHeight(35);
@@ -922,7 +938,15 @@ void InspectorDialog::buildGrid()
 
         std::string layerName = le.name;
         connect(btn, &QToolButton::clicked, this,
-                [this, layerName]() { if (onLayerSelected_) onLayerSelected_(layerName); });
+                [this, layerName]() {
+                    currentLayer_ = layerName;
+                    if (onLayerSelected_) onLayerSelected_(layerName);
+                    if (shuffleBtn_) {
+                        shuffleBtn_->setEnabled(true);
+                        shuffleBtn_->setText(QString("Shuffle: %1").arg(
+                            QString::fromStdString(layerName)));
+                    }
+                });
 
         btn->setVisible(visible);
         le.button = btn;

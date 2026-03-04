@@ -107,6 +107,7 @@ class InspectorDialog : public QDialog {
 public:
     explicit InspectorDialog(PrepareCallback prepare,
                              LayerCallback   onLayerSelected,
+                             LayerCallback   onCreateShuffle,
                              const InspectorSettings& settings = InspectorSettings(),
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
@@ -145,9 +146,11 @@ private:
 
     PrepareCallback           prepare_;
     LayerCallback             onLayerSelected_;
+    LayerCallback             onCreateShuffle_;
     RenderOneCallback         renderOne_;
 
     std::vector<LayerEntry>   layers_;
+    std::string               currentLayer_;
 
     int           nextRenderIdx_ = 0;
     bool          rendering_     = false;
@@ -171,6 +174,7 @@ private:
     QPushButton*   regenBtn_       = nullptr;
     QPushButton*   reverseBtn_     = nullptr;
     QPushButton*   catAllBtn_      = nullptr;
+    QPushButton*   shuffleBtn_     = nullptr;
     QScrollArea*   scrollArea_     = nullptr;
     QWidget*       container_      = nullptr;
     QGridLayout*   grid_           = nullptr;
