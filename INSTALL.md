@@ -6,20 +6,16 @@
 VisualLayerInspector/
 ├── nuke14/VisualLayerInspector.dll   ← C++ plugin for Nuke 14.x
 ├── nuke16/VisualLayerInspector.dll   ← C++ plugin for Nuke 16.x
-├── visual_layer_inspector.py         ← Python version (any Nuke)
-├── init.py                           ← Nuke startup config
-├── menu.py                           ← Nuke menu entry
+├── init.py                           ← Nuke startup config (auto-detects version)
 ├── install.bat                       ← Automatic installer
 └── INSTALL.md                        ← This file
 ```
 
 ## Quick install (Windows)
 
-Double-click **install.bat** — it copies everything to the right place automatically.
+Double-click **install.bat** — it copies both DLLs and the startup config automatically.
 
 ## Manual install
-
-### C++ plugin (recommended — faster thumbnails)
 
 1. Create a folder: `C:\Users\<YourName>\.nuke\VisualLayerInspector\`
    - Copy `nuke14\VisualLayerInspector.dll` into a `nuke14` subfolder
@@ -28,28 +24,26 @@ Double-click **install.bat** — it copies everything to the right place automat
 2. Copy the included `init.py` to your `.nuke` folder (if you don't already have one).
    It auto-detects your Nuke version and loads the correct DLL.
 
-3. Copy the included `menu.py` to your `.nuke` folder, or if you already have one, add this line:
+3. If you already have an `init.py`, add this to it:
    ```python
-   import visual_layer_inspector
-   nuke.menu("Nuke").addCommand("Filter/Visual Layer Inspector (Python)", "visual_layer_inspector.launch()", "")
+   import nuke, os
+   _vli_dir = os.path.join(os.path.expanduser("~"), ".nuke", "VisualLayerInspector")
+   _nuke_major = nuke.NUKE_VERSION_MAJOR
+   if _nuke_major >= 16:
+       nuke.pluginAddPath(os.path.join(_vli_dir, "nuke16"))
+   elif _nuke_major >= 14:
+       nuke.pluginAddPath(os.path.join(_vli_dir, "nuke14"))
    ```
 
 4. Restart Nuke. The node appears under **Filter > VisualLayerInspector**.
 
-### Python version (no compilation needed)
-
-1. Copy `visual_layer_inspector.py` to your `.nuke` folder.
-
-2. If you didn't already do so above, copy the included `menu.py` to your `.nuke` folder,
-   or add the menu entry to your existing `menu.py`.
-
-3. Restart Nuke.
-
 ## Usage
 
 1. Select any node with multiple layers/AOVs (e.g. an EXR Read node).
-2. Launch the inspector from the Filter menu or the node's properties panel.
-3. Thumbnails generate automatically — click any layer to switch the Viewer.
+2. Create a VisualLayerInspector node and connect it.
+3. Set your preferred Proxy, Sort, and Category options in the properties panel.
+4. Click **Launch Inspector** to open the thumbnail grid.
+5. Click any thumbnail to switch the active Viewer to that layer.
 
 ## Features
 
@@ -59,12 +53,12 @@ Double-click **install.bat** — it copies everything to the right place automat
 - Filter by name and category (Lighting, Utility, Data, Cryptomatte, Custom)
 - Proxy modes for fast browsing of heavy EXRs
 - Resizable thumbnails via slider
+- Settings configurable from the Nuke properties panel
 - Modeless — Nuke stays fully interactive
 
 ## Requirements
 
-- Nuke 14.1+ or Nuke 16.0+ (C++ plugin)
-- Any Nuke with Python/PySide support (Python version)
+- Nuke 14.1+ or Nuke 16.0+
 - Windows only (macOS/Linux not currently supported)
 
 ---

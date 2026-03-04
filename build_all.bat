@@ -150,11 +150,6 @@ if !errorlevel! neq 0 (
     echo WARNING: Failed to copy Nuke 16 DLL
 )
 
-copy /Y "python\visual_layer_inspector.py" "%USERPROFILE%\.nuke\"
-if !errorlevel! neq 0 (
-    echo WARNING: Failed to copy Python script
-)
-
 :: -------------------------------------------------------------------
 ::  Package for distribution
 :: -------------------------------------------------------------------
@@ -170,9 +165,7 @@ mkdir "%PKG_DIR%\nuke16" 2>nul
 
 copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke14\"
 copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke16\"
-copy /Y "python\visual_layer_inspector.py" "%PKG_DIR%\"
 copy /Y "dist_files\init.py" "%PKG_DIR%\"
-copy /Y "dist_files\menu.py" "%PKG_DIR%\"
 copy /Y "INSTALL.md" "%PKG_DIR%\"
 copy /Y "install.bat" "%PKG_DIR%\"
 
@@ -199,7 +192,6 @@ echo ============================================================
 echo  Done! Both versions installed:
 echo    Nuke 14: %INSTALL_DIR%\nuke14\VisualLayerInspector.dll
 echo    Nuke 16: %INSTALL_DIR%\nuke16\VisualLayerInspector.dll
-echo    Python:  %USERPROFILE%\.nuke\visual_layer_inspector.py
 echo    Package: dist\VisualLayerInspector_v18.3.zip
 echo ============================================================
 goto :end
