@@ -353,6 +353,17 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     footerLayout->addWidget(credit);
     footerLayout->addStretch();
 
+    auto* closeRgbaBtn = new QPushButton("Close \xe2\x86\x92 RGBA");
+    closeRgbaBtn->setFixedHeight(35);
+    closeRgbaBtn->setMinimumWidth(130);
+    closeRgbaBtn->setToolTip("Close the inspector and switch the Viewer back to rgba");
+    closeRgbaBtn->setStyleSheet("font-weight: bold; background-color: #335544;");
+    connect(closeRgbaBtn, &QPushButton::clicked, this, [this]() {
+        if (onLayerSelected_) onLayerSelected_("rgba");
+        close();
+    });
+    footerLayout->addWidget(closeRgbaBtn);
+
     auto* closeBtn = new QPushButton("Close");
     closeBtn->setFixedHeight(35);
     closeBtn->setMinimumWidth(100);
