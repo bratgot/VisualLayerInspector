@@ -168,6 +168,7 @@ mkdir "%PKG_DIR%\nuke16" 2>nul
 copy /Y "build-nuke14\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke14\"
 copy /Y "build-nuke16\Release\VisualLayerInspector.dll" "%PKG_DIR%\nuke16\"
 copy /Y "dist_files\init.py" "%PKG_DIR%\"
+copy /Y "dist_files\menu.py" "%PKG_DIR%\"
 copy /Y "INSTALL.md" "%PKG_DIR%\"
 copy /Y "install.bat" "%PKG_DIR%\"
 

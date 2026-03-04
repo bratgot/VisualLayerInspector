@@ -53,6 +53,25 @@ if not exist "%NUKE_DIR%\init.py" (
 )
 
 :: -------------------------------------------------------------------
+::  Add menu entry if not already present
+:: -------------------------------------------------------------------
+if not exist "%NUKE_DIR%\menu.py" (
+    echo  Installing menu.py...
+    copy /Y "%~dp0menu.py" "%NUKE_DIR%\menu.py" >nul
+    echo    OK: menu.py installed
+) else (
+    findstr /C:"VisualLayerInspector" "%NUKE_DIR%\menu.py" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo  Adding menu entry to existing menu.py...
+        echo.>> "%NUKE_DIR%\menu.py"
+        type "%~dp0menu.py" >> "%NUKE_DIR%\menu.py"
+        echo    OK: menu entry added
+    ) else (
+        echo  menu.py already has Visual Layer Inspector entry — skipping.
+    )
+)
+
+:: -------------------------------------------------------------------
 ::  Nuke version note
 :: -------------------------------------------------------------------
 echo.
