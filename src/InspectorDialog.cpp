@@ -126,7 +126,7 @@ void InspectorDialog::sortLayers()
 // ============================================================================
 InspectorDialog::InspectorDialog(PrepareCallback prepare,
                                  LayerCallback   onLayerSelected,
-                                 LayerCallback   onCreateShuffle,
+                                 ShuffleCallback  onCreateShuffle,
                                  const InspectorSettings& settings,
                                  QWidget* parent)
     : QDialog(parent)
@@ -355,17 +355,30 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     footerLayout->addWidget(credit);
     footerLayout->addStretch();
 
-    shuffleBtn_ = new QPushButton("Shuffle: (none)");
+    shuffleBtn_ = new QPushButton("Shuffle (shift+click to select)");
     shuffleBtn_->setFixedHeight(35);
-    shuffleBtn_->setMinimumWidth(160);
+    shuffleBtn_->setMinimumWidth(200);
     shuffleBtn_->setEnabled(false);
-    shuffleBtn_->setToolTip("Create a Shuffle node that pipes the selected layer to RGB");
+    shuffleBtn_->setToolTip("Shift+click thumbnails to select layers,\nthen click here to create Shuffle2 nodes for each");
     shuffleBtn_->setStyleSheet(
         "QPushButton { font-weight: bold; background-color: #334455; }"
         "QPushButton:disabled { background-color: #333333; color: #666666; }");
     connect(shuffleBtn_, &QPushButton::clicked, this, [this]() {
-        if (onCreateShuffle_ && !currentLayer_.empty())
-            onCreateShuffle_(currentLayer_);
+        if (!onCreateShuffle_) return;
+        std::vector<std::string> selected;
+        for (auto& le : layers_)
+            if (le.selected) selected.push_back(le.name);
+        if (!selected.empty()) {
+            onCreateShuffle_(selected);
+            // Clear selection after creating
+            for (auto& le : layers_) {
+                le.selected = false;
+                if (le.button)
+                    le.button->setStyleSheet(
+                        "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+            }
+            updateShuffleButton();
+        }
     });
     footerLayout->addWidget(shuffleBtn_);
 
@@ -921,7 +934,13 @@ void InspectorDialog::buildGrid()
         if (le.channelCount > 0) label += QString("  [%1ch]").arg(le.channelCount);
         btn->setText(label);
         btn->setFixedSize(btnWidth, btnHeight);
-        btn->setStyleSheet("QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+        if (le.selected) {
+            btn->setStyleSheet(
+                "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
+        } else {
+            btn->setStyleSheet(
+                "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+        }
 
         if (!le.thumbnail.isNull()) {
             btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -937,14 +956,19 @@ void InspectorDialog::buildGrid()
         }
 
         std::string layerName = le.name;
+        int layerIdx = i;
         connect(btn, &QToolButton::clicked, this,
-                [this, layerName]() {
-                    currentLayer_ = layerName;
-                    if (onLayerSelected_) onLayerSelected_(layerName);
-                    if (shuffleBtn_) {
-                        shuffleBtn_->setEnabled(true);
-                        shuffleBtn_->setText(QString("Shuffle: %1").arg(
-                            QString::fromStdString(layerName)));
+                [this, layerName, layerIdx]() {
+                    bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
+                    if (shift) {
+                        // Toggle selection
+                        layers_[layerIdx].selected = !layers_[layerIdx].selected;
+                        updateSelectionStyle(layerIdx);
+                        updateShuffleButton();
+                    } else {
+                        // View in Viewer
+                        currentLayer_ = layerName;
+                        if (onLayerSelected_) onLayerSelected_(layerName);
                     }
                 });
 
@@ -989,4 +1013,51 @@ void InspectorDialog::onProxyChanged(int comboIndex)
     int newStep = proxyCombo_->itemData(comboIndex).toInt();
     if (newStep == proxyStep_) return;
     proxyStep_ = newStep;
+}
+
+// ============================================================================
+//  Selection helpers
+// ============================================================================
+void InspectorDialog::updateSelectionStyle(int layerIdx)
+{
+    auto& le = layers_[layerIdx];
+    if (!le.button) return;
+    if (le.selected) {
+        le.button->setStyleSheet(
+            "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
+    } else {
+        le.button->setStyleSheet(
+            "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+    }
+}
+
+void InspectorDialog::updateShuffleButton()
+{
+    if (!shuffleBtn_) return;
+    int count = 0;
+    for (auto& le : layers_)
+        if (le.selected) ++count;
+
+    if (count == 0) {
+        shuffleBtn_->setEnabled(false);
+        shuffleBtn_->setText("Shuffle (shift+click to select)");
+        shuffleBtn_->setStyleSheet(
+            "QPushButton { font-weight: bold; background-color: #334455; }"
+            "QPushButton:disabled { background-color: #333333; color: #666666; }");
+    } else {
+        shuffleBtn_->setEnabled(true);
+        shuffleBtn_->setText(QString("Shuffle %1 layer%2")
+            .arg(count).arg(count > 1 ? "s" : ""));
+
+        // Shift from blue (#334455) toward pink (#aa3366) as more layers selected
+        float t = std::min(1.0f, count / 15.0f);
+        int r = static_cast<int>(0x33 + t * (0xaa - 0x33));
+        int g = static_cast<int>(0x44 + t * (0x33 - 0x44));
+        int b = static_cast<int>(0x55 + t * (0x66 - 0x55));
+        shuffleBtn_->setStyleSheet(
+            QString("QPushButton { font-weight: bold; background-color: #%1%2%3; }")
+            .arg(r, 2, 16, QChar('0'))
+            .arg(g, 2, 16, QChar('0'))
+            .arg(b, 2, 16, QChar('0')));
+    }
 }

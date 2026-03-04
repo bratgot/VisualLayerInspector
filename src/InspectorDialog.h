@@ -45,6 +45,7 @@ static constexpr const char* kVLI_Version = "v18.3";
 // ============================================================================
 using RenderOneCallback = std::function<QImage(int layerIndex, int proxyStep)>;
 using LayerCallback     = std::function<void(const std::string&)>;
+using ShuffleCallback   = std::function<void(const std::vector<std::string>&)>;
 
 struct PrepareResult {
     std::vector<std::string> layerNames;
@@ -75,6 +76,7 @@ struct LayerEntry {
     LayerCategory category;
     QImage        thumbnail;
     QToolButton*  button = nullptr;   // persistent button — survives sort
+    bool          selected = false;   // shift-click selection for shuffle export
 };
 
 // ============================================================================
@@ -107,7 +109,7 @@ class InspectorDialog : public QDialog {
 public:
     explicit InspectorDialog(PrepareCallback prepare,
                              LayerCallback   onLayerSelected,
-                             LayerCallback   onCreateShuffle,
+                             ShuffleCallback  onCreateShuffle,
                              const InspectorSettings& settings = InspectorSettings(),
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
@@ -143,10 +145,12 @@ private:
     void stopRendering();
     void updateProgress();
     void updateCategoryCounts();
+    void updateSelectionStyle(int layerIdx);
+    void updateShuffleButton();
 
     PrepareCallback           prepare_;
     LayerCallback             onLayerSelected_;
-    LayerCallback             onCreateShuffle_;
+    ShuffleCallback           onCreateShuffle_;
     RenderOneCallback         renderOne_;
 
     std::vector<LayerEntry>   layers_;
