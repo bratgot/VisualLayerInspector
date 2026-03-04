@@ -241,8 +241,7 @@ public:
         // ── Title ──
         Text_knob(f,
             "<span style='font-size:18px; font-weight:bold; color:#eee;'>"
-            "Visual Layer Inspector</span>");
-        Text_knob(f,
+            "Visual Layer Inspector</span><br>"
             "<span style='color:#999;'>"
             "Browse and preview every layer/AOV on a multi-layer input. "
             "Click a thumbnail to switch the active Viewer.</span>");
