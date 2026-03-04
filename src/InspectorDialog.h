@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v18.3
+// InspectorDialog.h — Visual Layer Inspector v18.4
 //
-// v18.3: Batch all layout changes via setUpdatesEnabled(false/true) —
+// v18.4: Batch all layout changes via setUpdatesEnabled(false/true) —
 //        slider drag, reflow, sort, and buildGrid all batch into ONE repaint.
 //        Buttons with no thumbnail show a dark placeholder outline.
 //      without destroying/recreating. All button for category checkboxes.
@@ -38,7 +38,7 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v18.3";
+static constexpr const char* kVLI_Version = "v18.4";
 
 // ============================================================================
 //  Callback types
@@ -76,7 +76,8 @@ struct LayerEntry {
     LayerCategory category;
     QImage        thumbnail;
     QToolButton*  button = nullptr;   // persistent button — survives sort
-    bool          selected = false;   // shift-click selection for shuffle export
+    bool          selected = false;   // included in shuffle export
+    bool          pinned   = false;   // shift-clicked — sticky selection
 };
 
 // ============================================================================

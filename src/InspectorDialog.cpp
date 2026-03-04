@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v18.3
+// InspectorDialog.cpp — Visual Layer Inspector v18.4
 //
-// v18.3: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+// v18.4: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
 //        Buttons without thumbnails show a dark placeholder outline.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
@@ -691,7 +691,7 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
-    // --- v18.3: batch all layout changes into ONE repaint ---
+    // --- v18.4: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -777,7 +777,7 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
 
-    // --- v18.3: geometry only during drag — pixmaps rebuild on release ---
+    // --- v18.4: geometry only during drag — pixmaps rebuild on release ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -794,7 +794,7 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
-    // --- v18.3: batch all layout changes into ONE repaint ---
+    // --- v18.4: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -824,7 +824,7 @@ void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
 
-    // --- v18.3: rescale icons in place — no grid rebuild ---
+    // --- v18.4: rescale icons in place — no grid rebuild ---
     const QSize iconSize(thumbWidth_, thumbHeight_);
 
     QWidget* container = scrollArea_->widget();
@@ -876,7 +876,7 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
-    // --- v18.3: batch all layout changes into ONE repaint ---
+    // --- v18.4: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
     if (container) container->setUpdatesEnabled(false);
 
@@ -961,15 +961,25 @@ void InspectorDialog::buildGrid()
                 [this, layerName, layerIdx]() {
                     bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
                     if (shift) {
-                        // Toggle selection
-                        layers_[layerIdx].selected = !layers_[layerIdx].selected;
-                        updateSelectionStyle(layerIdx);
-                        updateShuffleButton();
+                        // Toggle pinned (sticky) selection
+                        layers_[layerIdx].pinned = !layers_[layerIdx].pinned;
+                        layers_[layerIdx].selected = layers_[layerIdx].pinned;
                     } else {
-                        // View in Viewer
+                        // Clear all non-pinned selections
+                        for (int j = 0; j < static_cast<int>(layers_.size()); ++j) {
+                            if (!layers_[j].pinned) {
+                                layers_[j].selected = false;
+                            }
+                        }
+                        // Select this one (non-pinned active highlight)
+                        layers_[layerIdx].selected = true;
                         currentLayer_ = layerName;
                         if (onLayerSelected_) onLayerSelected_(layerName);
                     }
+                    // Update all button styles
+                    for (int j = 0; j < static_cast<int>(layers_.size()); ++j)
+                        updateSelectionStyle(j);
+                    updateShuffleButton();
                 });
 
         btn->setVisible(visible);
@@ -1022,9 +1032,14 @@ void InspectorDialog::updateSelectionStyle(int layerIdx)
 {
     auto& le = layers_[layerIdx];
     if (!le.button) return;
-    if (le.selected) {
+    if (le.pinned) {
+        // Shift-clicked: blue border (sticky)
         le.button->setStyleSheet(
             "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
+    } else if (le.selected) {
+        // Normal click: pink border (active)
+        le.button->setStyleSheet(
+            "QToolButton { background-color: #3a2a3a; border: 2px solid #cc6699; }");
     } else {
         le.button->setStyleSheet(
             "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
