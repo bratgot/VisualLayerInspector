@@ -306,6 +306,8 @@ public:
             "\xe2\x80\xa2 Use the <b>Filter</b> box to search by name (e.g. 'spec', 'depth')<br>"
             "\xe2\x80\xa2 Use <b>Stop</b> to pause thumbnail generation on heavy EXRs<br>"
             "\xe2\x80\xa2 Change <b>Proxy</b> before launching for faster browsing<br>"
+            "\xe2\x80\xa2 <b>Shift+click</b> thumbnails to select layers for Shuffle export<br>"
+            "\xe2\x80\xa2 Click <b>Shuffle</b> to create Shuffle2 nodes for all selected layers<br>"
             "\xe2\x80\xa2 The window stays on top \xe2\x80\x94 Nuke is fully interactive underneath<br>"
             "<br>"
             "<b>Tips:</b><br>"
@@ -451,10 +453,17 @@ private:
             runPython(cmd);
         };
 
-        auto onCreateShuffle = [](const std::string& layerName) {
+        auto onCreateShuffle = [](const std::vector<std::string>& layerNames) {
+            // Build a Python list of layer names
+            std::string pyList = "[";
+            for (size_t i = 0; i < layerNames.size(); ++i) {
+                if (i > 0) pyList += ", ";
+                pyList += "'" + layerNames[i] + "'";
+            }
+            pyList += "]";
+
             std::string cmd =
                 "import nuke\n"
-                "# Find the VisualLayerInspector node and its input\n"
                 "vli = None\n"
                 "for n in nuke.allNodes('VisualLayerInspector'):\n"
                 "    if n.input(0):\n"
@@ -463,10 +472,15 @@ private:
                 "if vli and vli.input(0):\n"
                 "    inp = vli.input(0)\n"
                 "    for n in nuke.selectedNodes(): n.setSelected(False)\n"
-                "    inp.setSelected(True)\n"
-                "    s = nuke.createNode('Shuffle2')\n"
-                "    s['in1'].setValue('" + layerName + "')\n"
-                "    s['label'].setValue('[value in1]')\n";
+                "    layers = " + pyList + "\n"
+                "    for i, layer in enumerate(layers):\n"
+                "        inp.setSelected(True)\n"
+                "        s = nuke.createNode('Shuffle2')\n"
+                "        s['in1'].setValue(layer)\n"
+                "        s['label'].setValue('[value in1]')\n"
+                "        s.setXYpos(inp.xpos() + (i * 110), inp.ypos() + 80)\n"
+                "        s.setSelected(False)\n"
+                "        inp.setSelected(False)\n";
             runPython(cmd);
         };
 
