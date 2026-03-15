@@ -20,6 +20,7 @@
 const char* layerCategoryName(LayerCategory cat)
 {
     switch (cat) {
+        case LayerCategory::Default:     return "Default";
         case LayerCategory::Lighting:    return "Lighting";
         case LayerCategory::Utility:     return "Utility";
         case LayerCategory::Data:        return "Data";
@@ -45,6 +46,9 @@ LayerCategory classifyLayer(const std::string& name)
 {
     const std::string lower = toLower(name);
 
+    // Default layer (rgba, rgb)
+    if (lower == "rgba" || lower == "rgb") return LayerCategory::Default;
+
     if (lower.substr(0, 6) == "crypto") return LayerCategory::Cryptomatte;
 
     static const char* lightingPatterns[] = {
@@ -64,7 +68,7 @@ LayerCategory classifyLayer(const std::string& name)
         "worldnormal", "worldposition", "worldpoint", "pworld",
         "nworld", "pref", "st_map", "stmap", "z_depth", "zdepth",
         "facing_ratio", "faceratio", "barycentric", "tangent",
-        "opacity", "coverage", "rgba",
+        "opacity", "coverage",
         nullptr
     };
     for (int i = 0; utilityPatterns[i]; ++i)
@@ -237,6 +241,7 @@ InspectorDialog::InspectorDialog(ScanCallback    scanLayers,
 
     struct CatStyle { LayerCategory cat; const char* colour; bool checked; };
     CatStyle styles[] = {
+        { LayerCategory::Default,     "#eeeeee", settings.showDefault },
         { LayerCategory::Lighting,    "#ddaa44", settings.showLighting },
         { LayerCategory::Utility,     "#44aadd", settings.showUtility },
         { LayerCategory::Data,        "#aa66cc", settings.showData },
@@ -517,9 +522,19 @@ void InspectorDialog::autoInit()
         PrepareResult pr = prepareRender_();
         if (pr.valid) {
             renderOne_ = std::move(pr.renderOne);
+            // Remap prepareIndex: EXR inspector ordering may differ from Nuke's
+            for (auto& le : layers_) {
+                le.prepareIndex = -1;
+                for (int j = 0; j < static_cast<int>(pr.layerNames.size()); ++j) {
+                    if (pr.layerNames[j] == le.name) {
+                        le.prepareIndex = j;
+                        break;
+                    }
+                }
+            }
             beginRendering();
         } else {
-            statusLabel_->setText("Ready — click Regenerate to render thumbnails.");
+            statusLabel_->setText("Ready \xe2\x80\x94 click Regenerate to render thumbnails.");
             regenBtn_->setEnabled(true);
         }
     });
@@ -601,14 +616,15 @@ void InspectorDialog::renderNextThumbnail()
     if (!rendering_) return;
     const int total = static_cast<int>(layers_.size());
 
-    // Skip layers that already have thumbnails
-    while (nextRenderIdx_ < total && !layers_[nextRenderIdx_].thumbnail.isNull())
+    // Skip layers that already have thumbnails or have no valid render index
+    while (nextRenderIdx_ < total &&
+           (!layers_[nextRenderIdx_].thumbnail.isNull() || layers_[nextRenderIdx_].prepareIndex < 0))
         ++nextRenderIdx_;
 
     if (nextRenderIdx_ >= total) { stopRendering(); return; }
 
     auto& entry = layers_[nextRenderIdx_];
-    if (renderOne_) {
+    if (renderOne_ && entry.prepareIndex >= 0) {
         QImage img = renderOne_(entry.prepareIndex, proxyStep_);
         entry.thumbnail = std::move(img);
         // Update the button icon immediately
@@ -736,7 +752,7 @@ void InspectorDialog::onCategoryToggle()
     // Check if any visible layers still need thumbnails
     bool needsRender = false;
     for (auto& le : layers_) {
-        if (le.button && le.thumbnail.isNull()) {
+        if (le.button && le.thumbnail.isNull() && le.prepareIndex >= 0) {
             needsRender = true;
             break;
         }
