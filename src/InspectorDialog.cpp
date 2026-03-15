@@ -124,13 +124,15 @@ void InspectorDialog::sortLayers()
 // ============================================================================
 //  Constructor
 // ============================================================================
-InspectorDialog::InspectorDialog(PrepareCallback prepare,
+InspectorDialog::InspectorDialog(ScanCallback    scanLayers,
+                                 PrepareCallback prepareRender,
                                  LayerCallback   onLayerSelected,
                                  ShuffleCallback  onCreateShuffle,
                                  const InspectorSettings& settings,
                                  QWidget* parent)
     : QDialog(parent)
-    , prepare_(std::move(prepare))
+    , scanLayers_(std::move(scanLayers))
+    , prepareRender_(std::move(prepareRender))
     , onLayerSelected_(std::move(onLayerSelected))
     , onCreateShuffle_(std::move(onCreateShuffle))
     , proxyStep_(settings.proxyStep)
@@ -401,11 +403,6 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     mainLayout->addLayout(footerLayout);
 
     controlsWidget_->setVisible(true);
-
-    // Fallback: ensure autoInit fires even if showEvent doesn't trigger
-    // reliably (common with modeless dialogs in Nuke's Qt event loop).
-    // The scanned_ guard inside autoInit prevents double execution.
-    QTimer::singleShot(100, this, &InspectorDialog::autoInit);
 }
 
 InspectorDialog::~InspectorDialog()
@@ -414,14 +411,15 @@ InspectorDialog::~InspectorDialog()
 }
 
 // ============================================================================
-//  showEvent -> auto-init
+//  showEvent -> auto-init (single entry point, no race)
 // ============================================================================
 void InspectorDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
     if (!showFired_) {
         showFired_ = true;
-        QTimer::singleShot(0, this, &InspectorDialog::autoInit);
+        // 200ms delay ensures dialog is fully visible and painted first
+        QTimer::singleShot(200, this, &InspectorDialog::autoInit);
     }
 }
 
@@ -439,23 +437,26 @@ void InspectorDialog::rescan()
 {
     stopRendering();
 
-    // Clean up existing grid widgets before clearing layer data
+    // Clean up
     for (auto& le : layers_) {
         if (le.button) { le.button->setParent(nullptr); delete le.button; le.button = nullptr; }
     }
     for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
-    while (grid_->count()) {
-        QLayoutItem* item = grid_->takeAt(0);
-        if (item->widget()) { item->widget()->setParent(nullptr); delete item->widget(); }
-        delete item;
-    }
+
+    // Fresh container
+    auto* newContainer = new QWidget;
+    grid_ = new QGridLayout(newContainer);
+    grid_->setSpacing(6);
+    scrollArea_->setWidget(newContainer);
+    container_ = newContainer;
 
     scanned_ = false;
     initializing_ = false;
     showFired_ = true;       // don't re-trigger showEvent init
     currentLayer_.clear();
     layers_.clear();
+    renderOne_ = nullptr;
     nextRenderIdx_ = 0;
 
     statusLabel_->setText("Input changed — rescanning...");
@@ -470,39 +471,34 @@ void InspectorDialog::rescan()
 // ============================================================================
 void InspectorDialog::autoInit()
 {
-    if (scanned_ || initializing_ || !prepare_) return;
+    if (scanned_ || initializing_ || !scanLayers_) return;
     initializing_ = true;
 
-    statusLabel_->setText("Reading EXR headers (first open may be slow)...");
-    progressBar_->setRange(0, 0);
-    progressBar_->setFormat("Scanning...");
+    // ── Phase 1: fast scan — just layer names ──
+    statusLabel_->setText("Scanning layers...");
     setCursor(Qt::WaitCursor);
-    // Force Qt to paint the status update before we block on prepare_()
-    QApplication::processEvents();
 
-    PrepareResult result = prepare_();
+    ScanResult scan = scanLayers_();
     setCursor(Qt::ArrowCursor);
-    initializing_ = false;
 
-    if (!result.valid) {
+    if (!scan.valid) {
         statusLabel_->setText(
-            QString("Error: %1").arg(QString::fromStdString(result.errorMsg)));
+            QString("Error: %1").arg(QString::fromStdString(scan.errorMsg)));
         progressBar_->setRange(0, 1);
         progressBar_->setValue(0);
         progressBar_->setFormat("Failed");
+        initializing_ = false;
         return;
     }
 
-    renderOne_ = std::move(result.renderOne);
-
     layers_.clear();
-    layers_.reserve(result.layerNames.size());
-    for (int i = 0; i < static_cast<int>(result.layerNames.size()); ++i) {
+    layers_.reserve(scan.layerNames.size());
+    for (int i = 0; i < static_cast<int>(scan.layerNames.size()); ++i) {
         LayerEntry le;
-        le.name = result.layerNames[i];
+        le.name = scan.layerNames[i];
         le.prepareIndex = i;
-        le.channelCount = (i < static_cast<int>(result.channelCounts.size()))
-                              ? result.channelCounts[i] : 0;
+        le.channelCount = (i < static_cast<int>(scan.channelCounts.size()))
+                              ? scan.channelCounts[i] : 0;
         le.category = classifyLayer(le.name);
         le.button = nullptr;
         layers_.push_back(std::move(le));
@@ -511,9 +507,22 @@ void InspectorDialog::autoInit()
     sortLayers();
     scanned_ = true;
     updateCategoryCounts();
-    buildGrid();
+    buildGrid();                // grid appears immediately with placeholders
+    initializing_ = false;
 
-    beginRendering();
+    // ── Phase 2: deferred render setup (after grid is visible) ──
+    QTimer::singleShot(50, this, [this]() {
+        if (!prepareRender_) return;
+        statusLabel_->setText("Preparing render engine...");
+        PrepareResult pr = prepareRender_();
+        if (pr.valid) {
+            renderOne_ = std::move(pr.renderOne);
+            beginRendering();
+        } else {
+            statusLabel_->setText("Ready — click Regenerate to render thumbnails.");
+            regenBtn_->setEnabled(true);
+        }
+    });
 }
 
 // ============================================================================
@@ -546,6 +555,28 @@ void InspectorDialog::updateCategoryCounts()
 void InspectorDialog::beginRendering()
 {
     if (!scanned_ || layers_.empty()) return;
+
+    // Don't render if no buttons are visible — nothing to update
+    bool anyButtons = false;
+    for (auto& le : layers_) {
+        if (le.button) { anyButtons = true; break; }
+    }
+    if (!anyButtons) return;
+
+    // Ensure render callback is ready (deferred setup)
+    if (!renderOne_ && prepareRender_) {
+        statusLabel_->setText("Preparing render engine...");
+        setCursor(Qt::WaitCursor);
+        PrepareResult pr = prepareRender_();
+        setCursor(Qt::ArrowCursor);
+        if (pr.valid)
+            renderOne_ = std::move(pr.renderOne);
+    }
+    if (!renderOne_) {
+        statusLabel_->setText("Error: could not set up rendering.");
+        return;
+    }
+
     rendering_ = true;
     nextRenderIdx_ = 0;
     perfTimer_.start();
@@ -686,7 +717,13 @@ void InspectorDialog::onReverseToggle()
 void InspectorDialog::onCategoryToggle()
 {
     if (!scanned_) return;
-    applyVisibility();
+
+    if (rendering_) stopRendering();
+
+    buildGrid();
+
+    // Start rendering for any visible layers missing thumbnails
+    beginRendering();
 }
 
 void InspectorDialog::onCatAll()
@@ -731,34 +768,30 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
-    // --- v1.9.0: batch all layout changes into ONE repaint ---
-    QWidget* container = scrollArea_->widget();
-    if (container) container->setUpdatesEnabled(false);
-
-    // Delete old group headers
-    for (auto* h : groupHeaders_) {
-        grid_->removeWidget(h);
-        h->hide();
-        h->deleteLater();
+    // Detach buttons from old layout (keep objects alive)
+    for (auto& le : layers_) {
+        if (le.button) le.button->setParent(nullptr);
     }
+    for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
 
-    // Detach all buttons from grid (widgets stay alive)
-    for (auto& le : layers_) {
-        if (le.button)
-            grid_->removeWidget(le.button);
-    }
+    // Fresh container + layout
+    auto* newContainer = new QWidget;
+    newContainer->setUpdatesEnabled(false);
+    grid_ = new QGridLayout(newContainer);
+    grid_->setSpacing(6);
+    scrollArea_->setWidget(newContainer);
+    container_ = newContainer;
 
-    // Re-add buttons in new sorted order + group headers
     const int cols = computeColumns();
     lastColumnCount_ = cols;
     bool showGroupHeaders = (sortMode_ == SortMode::TypeGroup);
-
     const std::string textFilter = filterEdit_
         ? toLower(filterEdit_->text().toStdString()) : std::string();
 
-    LayerCategory lastCat = LayerCategory::Custom;
-    int gridIdx = 0;
+    int row = 0;
+    int col = 0;
+    LayerCategory lastCat = static_cast<LayerCategory>(-1);
 
     for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
         auto& le = layers_[i];
@@ -775,24 +808,25 @@ void InspectorDialog::reorderGridFast()
 
         if (!visible) continue;
 
-        // Group header
-        if (showGroupHeaders && (gridIdx == 0 || le.category != lastCat)) {
-            if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
+        if (showGroupHeaders && le.category != lastCat) {
+            if (col > 0) { row++; col = 0; }
             auto* header = new QLabel(
                 QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
             header->setStyleSheet(
                 "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
-            grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
+            grid_->addWidget(header, row, 0, 1, cols);
             groupHeaders_.push_back(header);
-            gridIdx += cols;
+            row++;
+            col = 0;
             lastCat = le.category;
         }
 
-        grid_->addWidget(le.button, gridIdx / cols, gridIdx % cols);
-        ++gridIdx;
+        grid_->addWidget(le.button, row, col);
+        col++;
+        if (col >= cols) { row++; col = 0; }
     }
 
-    if (container) container->setUpdatesEnabled(true);
+    newContainer->setUpdatesEnabled(true);
 }
 
 // ============================================================================
@@ -834,56 +868,38 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
-    // --- v1.9.0: batch all layout changes into ONE repaint ---
-    QWidget* container = scrollArea_->widget();
-    if (container) container->setUpdatesEnabled(false);
-
-    for (auto* h : groupHeaders_) {
-        grid_->removeWidget(h);
-        h->hide();
-        h->deleteLater();
+    // Detach buttons
+    for (auto& le : layers_) {
+        if (le.button) le.button->setParent(nullptr);
     }
+    for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
 
-    for (auto& le : layers_) {
-        if (le.button) grid_->removeWidget(le.button);
-    }
+    // Fresh container — no stale grid rows
+    auto* newContainer = new QWidget;
+    newContainer->setUpdatesEnabled(false);
+    grid_ = new QGridLayout(newContainer);
+    grid_->setSpacing(6);
+    scrollArea_->setWidget(newContainer);
+    container_ = newContainer;
 
-    int gridIdx = 0;
+    int row = 0;
+    int col = 0;
     for (auto& le : layers_) {
         if (le.button && le.button->isVisible()) {
-            grid_->addWidget(le.button, gridIdx / cols, gridIdx % cols);
-            ++gridIdx;
+            grid_->addWidget(le.button, row, col);
+            col++;
+            if (col >= cols) { row++; col = 0; }
         }
     }
 
-    if (container) container->setUpdatesEnabled(true);
+    newContainer->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
-
-    // --- v1.9.0: rescale icons in place — no grid rebuild ---
-    const QSize iconSize(thumbWidth_, thumbHeight_);
-
-    QWidget* container = scrollArea_->widget();
-    if (container) container->setUpdatesEnabled(false);
-
-    for (auto& le : layers_) {
-        if (!le.button) continue;
-        le.button->setIconSize(iconSize);
-        if (!le.thumbnail.isNull()) {
-            QPixmap pm = QPixmap::fromImage(
-                le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                    Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            le.button->setIcon(QIcon(pm));
-        } else {
-            le.button->setIcon(QIcon(QPixmap::fromImage(makePlaceholder())));
-        }
-    }
-
-    if (container) container->setUpdatesEnabled(true);
+    buildGrid();
 }
 
 // ============================================================================
@@ -910,61 +926,87 @@ QImage InspectorDialog::makePlaceholder() const
 // ============================================================================
 int InspectorDialog::computeColumns() const
 {
-    int available = scrollArea_ ? scrollArea_->viewport()->width() : 1100;
+    int available = scrollArea_ ? scrollArea_->viewport()->width() : 0;
+    // If scroll area was just shown or hasn't laid out yet, use dialog width
+    if (available < 100)
+        available = width() - 40;
+    if (available < 100)
+        available = 1100;
     return std::max(1, available / (thumbWidth_ + kButtonPadding));
 }
 
 void InspectorDialog::buildGrid()
 {
-    // --- v1.9.0: batch all layout changes into ONE repaint ---
-    QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
-    if (container) container->setUpdatesEnabled(false);
-
-    // Destroy existing buttons
+    // Clean up old buttons
     for (auto& le : layers_) {
         if (le.button) { le.button->setParent(nullptr); delete le.button; le.button = nullptr; }
     }
-
     for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
 
-    while (grid_->count()) {
-        QLayoutItem* item = grid_->takeAt(0);
-        if (item->widget()) { item->widget()->setParent(nullptr); delete item->widget(); }
-        delete item;
-    }
+    // Determine visibility state first
+    bool anyChecked = false;
+    for (auto& kv : categoryChecks_)
+        if (kv.second->isChecked()) { anyChecked = true; break; }
+    bool showEmpty = !anyChecked && scanned_;
+
+    emptyLabel_->setVisible(showEmpty);
+    scrollArea_->setVisible(!showEmpty);
+
+    if (showEmpty) return;   // nothing to build
+
+    // Ensure scroll area is visible and sized before computing columns
+    scrollArea_->show();
+    scrollArea_->updateGeometry();
+
+    // Fresh container + layout
+    auto* newContainer = new QWidget;
+    newContainer->setUpdatesEnabled(false);
+    grid_ = new QGridLayout(newContainer);
+    grid_->setSpacing(6);
+    scrollArea_->setWidget(newContainer);
+    container_ = newContainer;
 
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
     const int cols = computeColumns();
     lastColumnCount_ = cols;
     const QString textFilter = filterEdit_ ? filterEdit_->text().toLower() : QString();
-
     bool showGroupHeaders = (sortMode_ == SortMode::TypeGroup);
-    LayerCategory lastCat = LayerCategory::Custom;
-    int gridIdx = 0;
 
+    // Collect visible layers
+    std::vector<int> visibleIndices;
     for (int i = 0; i < static_cast<int>(layers_.size()); ++i) {
         auto& le = layers_[i];
-
         bool catVisible = true;
         auto it = categoryChecks_.find(le.category);
         if (it != categoryChecks_.end())
             catVisible = it->second->isChecked();
         bool textVisible = textFilter.isEmpty()
             || toLower(le.name).find(textFilter.toStdString()) != std::string::npos;
-        bool visible = catVisible && textVisible;
+        if (catVisible && textVisible)
+            visibleIndices.push_back(i);
+    }
 
-        // Group header
-        if (showGroupHeaders && visible && (gridIdx == 0 || le.category != lastCat)) {
-            if (gridIdx % cols != 0) gridIdx += cols - (gridIdx % cols);
+    int row = 0;
+    int col = 0;
+    LayerCategory lastCat = static_cast<LayerCategory>(-1);
+
+    for (int vi = 0; vi < static_cast<int>(visibleIndices.size()); ++vi) {
+        int i = visibleIndices[vi];
+        auto& le = layers_[i];
+
+        // Group header when category changes
+        if (showGroupHeaders && le.category != lastCat) {
+            if (col > 0) { row++; col = 0; }
             auto* header = new QLabel(
                 QString("\xe2\x80\x94 %1 \xe2\x80\x94").arg(layerCategoryName(le.category)));
             header->setStyleSheet(
                 "font-size: 13px; font-weight: bold; color: #88aacc; padding: 8px 0 2px 5px;");
-            grid_->addWidget(header, gridIdx / cols, 0, 1, cols);
+            grid_->addWidget(header, row, 0, 1, cols);
             groupHeaders_.push_back(header);
-            gridIdx += cols;
+            row++;
+            col = 0;
             lastCat = le.category;
         }
 
@@ -974,24 +1016,17 @@ void InspectorDialog::buildGrid()
         if (le.channelCount > 0) label += QString("  [%1ch]").arg(le.channelCount);
         btn->setText(label);
         btn->setFixedSize(btnWidth, btnHeight);
-        if (le.selected) {
-            btn->setStyleSheet(
-                "QToolButton { background-color: #2a3a4a; border: 2px solid #5599dd; }");
-        } else {
-            btn->setStyleSheet(
-                "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
-        }
+        btn->setStyleSheet(
+            "QToolButton { background-color: #282828; border: 1px solid #3a3a3a; }");
+        btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+        btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
 
         if (!le.thumbnail.isNull()) {
-            btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-            btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
             QPixmap pm = QPixmap::fromImage(
                 le.thumbnail.scaled(thumbWidth_, thumbHeight_,
                                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
             btn->setIcon(QIcon(pm));
         } else {
-            btn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-            btn->setIconSize(QSize(thumbWidth_, thumbHeight_));
             btn->setIcon(QIcon(QPixmap::fromImage(makePlaceholder())));
         }
 
@@ -1001,30 +1036,28 @@ void InspectorDialog::buildGrid()
                 [this, layerName, layerIdx]() {
                     bool shift = QApplication::keyboardModifiers() & Qt::ShiftModifier;
                     if (shift) {
-                        // Toggle pinned (sticky selection for export)
                         layers_[layerIdx].pinned = !layers_[layerIdx].pinned;
                         layers_[layerIdx].selected = layers_[layerIdx].pinned;
                     } else {
-                        // Normal click: view this layer
                         currentLayer_ = layerName;
                         if (onLayerSelected_) onLayerSelected_(layerName);
                     }
-                    // Update all button styles (pink follows currentLayer_)
                     for (int j = 0; j < static_cast<int>(layers_.size()); ++j)
                         updateSelectionStyle(j);
                     updateShuffleButton();
                 });
 
-        btn->setVisible(visible);
         le.button = btn;
-
-        if (visible) {
-            grid_->addWidget(btn, gridIdx / cols, gridIdx % cols);
-            ++gridIdx;
-        }
+        grid_->addWidget(btn, row, col);
+        col++;
+        if (col >= cols) { row++; col = 0; }
     }
 
-    if (container) container->setUpdatesEnabled(true);
+    // Restore selection highlights
+    for (int i = 0; i < static_cast<int>(layers_.size()); ++i)
+        updateSelectionStyle(i);
+
+    newContainer->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::updateProgress()
@@ -1048,7 +1081,8 @@ void InspectorDialog::updateProgress()
 // ============================================================================
 void InspectorDialog::filterLayers(const QString& text)
 {
-    applyVisibility();
+    if (!scanned_) return;
+    buildGrid();
 }
 
 void InspectorDialog::onProxyChanged(int comboIndex)
