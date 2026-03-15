@@ -138,7 +138,6 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     , thumbHeight_(static_cast<int>(settings.thumbSize * kAspectRatio))
     , sortMode_(settings.sortMode)
 {
-    qRegisterMetaType<QImage>("QImage");
     setWindowTitle(QString("Visual Layer Inspector  [%1]").arg(kVLI_Version));
     setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint);
     resize(1150, 850);
@@ -456,7 +455,7 @@ void InspectorDialog::rescan()
     showFired_ = true;       // don't re-trigger showEvent init
     currentLayer_.clear();
     layers_.clear();
-    renderedCount_ = 0;
+    nextRenderIdx_ = 0;
 
     statusLabel_->setText("Input changed — rescanning...");
     progressBar_->setRange(0, 0);
@@ -536,74 +535,62 @@ void InspectorDialog::updateCategoryCounts()
 }
 
 // ============================================================================
-//  Rendering — background thread
+//  Rendering — one thumbnail per timer tick, UI stays responsive
 // ============================================================================
 void InspectorDialog::beginRendering()
 {
     if (!scanned_ || layers_.empty()) return;
-
-    // Stop any existing worker
-    stopRendering();
-
     rendering_ = true;
-    renderedCount_ = 0;
+    nextRenderIdx_ = 0;
     perfTimer_.start();
     stopBtn_->setText("Stop");
     stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
     stopBtn_->setEnabled(true);
     regenBtn_->setEnabled(false);
     updateProgress();
-
-    // Build list of prepareIndex values to render
-    QVector<int> indices;
-    for (auto& le : layers_) {
-        if (le.thumbnail.isNull())
-            indices.append(le.prepareIndex);
-    }
-
-    if (indices.isEmpty()) { stopRendering(); return; }
-
-    // Create worker and thread
-    workerThread_ = new QThread(this);
-    worker_ = new ThumbnailWorker(renderOne_, proxyStep_);
-    worker_->moveToThread(workerThread_);
-
-    connect(worker_, &ThumbnailWorker::thumbnailReady,
-            this, &InspectorDialog::onThumbnailReady, Qt::QueuedConnection);
-    connect(worker_, &ThumbnailWorker::batchFinished,
-            this, &InspectorDialog::onBatchFinished, Qt::QueuedConnection);
-    connect(workerThread_, &QThread::started, worker_, [worker=worker_, indices]() {
-        worker->renderBatch(indices);
-    });
-
-    workerThread_->start();
+    scheduleNextRender();
 }
 
-void InspectorDialog::onThumbnailReady(int prepareIndex, QImage image)
+void InspectorDialog::scheduleNextRender()
 {
-    if (image.isNull()) return;
+    if (!rendering_) return;
+    // singleShot(0) yields to the event loop so Qt paints the last icon
+    // before we block the main thread rendering the next one
+    QTimer::singleShot(0, this, &InspectorDialog::renderNextThumbnail);
+}
 
-    // Find the layer entry with this prepareIndex and update it
-    for (auto& le : layers_) {
-        if (le.prepareIndex == prepareIndex) {
-            le.thumbnail = std::move(image);
-            if (le.button && !le.thumbnail.isNull()) {
-                le.button->setIconSize(QSize(thumbWidth_, thumbHeight_));
-                QPixmap pm = QPixmap::fromImage(
-                    le.thumbnail.scaled(thumbWidth_, thumbHeight_,
-                                        Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                le.button->setIcon(QIcon(pm));
-            }
-            break;
+void InspectorDialog::renderNextThumbnail()
+{
+    if (!rendering_) return;
+    const int total = static_cast<int>(layers_.size());
+
+    // Skip layers that already have thumbnails
+    while (nextRenderIdx_ < total && !layers_[nextRenderIdx_].thumbnail.isNull())
+        ++nextRenderIdx_;
+
+    if (nextRenderIdx_ >= total) { stopRendering(); return; }
+
+    auto& entry = layers_[nextRenderIdx_];
+    if (renderOne_) {
+        QImage img = renderOne_(entry.prepareIndex, proxyStep_);
+        entry.thumbnail = std::move(img);
+        // Update the button icon immediately
+        if (entry.button && !entry.thumbnail.isNull()) {
+            entry.button->setIconSize(QSize(thumbWidth_, thumbHeight_));
+            QPixmap pm = QPixmap::fromImage(
+                entry.thumbnail.scaled(thumbWidth_, thumbHeight_,
+                                       Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            entry.button->setIcon(QIcon(pm));
+            // Force the button to repaint NOW before we render the next one
+            entry.button->repaint();
         }
     }
-    ++renderedCount_;
-    updateProgress();
-}
 
-void InspectorDialog::onBatchFinished()
-{
-    stopRendering();
+    ++nextRenderIdx_;
+    updateProgress();
+
+    if (nextRenderIdx_ >= total) stopRendering();
+    else scheduleNextRender();
 }
 
 // ============================================================================
@@ -611,27 +598,16 @@ void InspectorDialog::onBatchFinished()
 // ============================================================================
 void InspectorDialog::stopRendering()
 {
-    if (worker_) {
-        worker_->stop();
-    }
-    if (workerThread_) {
-        workerThread_->quit();
-        workerThread_->wait(2000);
-        delete worker_;
-        worker_ = nullptr;
-        workerThread_->deleteLater();
-        workerThread_ = nullptr;
-    }
-
     rendering_ = false;
     regenBtn_->setEnabled(true);
+    int done = nextRenderIdx_;
     int total = static_cast<int>(layers_.size());
-    if (renderedCount_ >= total) {
+    if (done >= total) {
         double elapsed = perfTimer_.elapsed() / 1000.0;
         statusLabel_->setText(QString("Done \xe2\x80\x94 %1 layers in %2 s").arg(total).arg(elapsed, 0, 'f', 2));
         stopBtn_->setEnabled(false);
     } else {
-        statusLabel_->setText(QString("Paused \xe2\x80\x94 %1 / %2 rendered").arg(renderedCount_).arg(total));
+        statusLabel_->setText(QString("Paused \xe2\x80\x94 %1 / %2 rendered").arg(done).arg(total));
         stopBtn_->setText("Resume");
         stopBtn_->setStyleSheet("font-weight: bold; background-color: #335544;");
     }
@@ -641,8 +617,13 @@ void InspectorDialog::onStopResume()
 {
     if (rendering_) {
         stopRendering();
-    } else if (scanned_ && renderedCount_ < static_cast<int>(layers_.size())) {
-        beginRendering();  // resume — beginRendering skips already-rendered layers
+    } else if (scanned_ && nextRenderIdx_ < static_cast<int>(layers_.size())) {
+        rendering_ = true;
+        regenBtn_->setEnabled(false);
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        scheduleNextRender();
     }
 }
 
@@ -1044,12 +1025,12 @@ void InspectorDialog::updateProgress()
 {
     int total = static_cast<int>(layers_.size());
     progressBar_->setMaximum(total);
-    progressBar_->setValue(renderedCount_);
-    progressBar_->setFormat(QString("%1 / %2 layers").arg(renderedCount_).arg(total));
-    if (rendering_ && renderedCount_ > 0 && renderedCount_ < total) {
+    progressBar_->setValue(nextRenderIdx_);
+    progressBar_->setFormat(QString("%1 / %2 layers").arg(nextRenderIdx_).arg(total));
+    if (rendering_ && nextRenderIdx_ > 0 && nextRenderIdx_ < total) {
         double elapsed = perfTimer_.elapsed() / 1000.0;
-        double perLayer = elapsed / renderedCount_;
-        double remaining = perLayer * (total - renderedCount_);
+        double perLayer = elapsed / nextRenderIdx_;
+        double remaining = perLayer * (total - nextRenderIdx_);
         statusLabel_->setText(
             QString("Rendering... ~%1 s remaining  (%2 ms/layer, %3x proxy)")
                 .arg(remaining, 0, 'f', 1).arg(perLayer * 1000, 0, 'f', 0).arg(proxyStep_));
