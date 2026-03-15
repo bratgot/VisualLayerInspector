@@ -128,16 +128,36 @@ set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 set(CMAKE_AUTOMOC ON)
 
 # --------------------------------------------------------------------------
+#  tinyexr — header-only EXR parser for fast layer scanning
+# --------------------------------------------------------------------------
+include(FetchContent)
+FetchContent_Declare(tinyexr
+    GIT_REPOSITORY https://github.com/syoyo/tinyexr.git
+    GIT_TAG        release
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(tinyexr)
+if(NOT tinyexr_POPULATED)
+    FetchContent_Populate(tinyexr)
+endif()
+
+# --------------------------------------------------------------------------
 #  Plugin target
 # --------------------------------------------------------------------------
 add_library(VisualLayerInspector SHARED
     src/VisualLayerInspector.cpp
     src/InspectorDialog.cpp
     src/InspectorDialog.h
+    src/exr_inspector.cpp
+    src/exr_inspector.h
+    ${tinyexr_SOURCE_DIR}/deps/miniz/miniz.c
 )
 
 target_include_directories(VisualLayerInspector PRIVATE
     "${NUKE_INCLUDE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ${tinyexr_SOURCE_DIR}
+    ${tinyexr_SOURCE_DIR}/deps/miniz
 )
 
 target_link_libraries(VisualLayerInspector PRIVATE
@@ -150,6 +170,7 @@ target_compile_definitions(VisualLayerInspector PRIVATE
     FN_EXAMPLE_PLUGIN          # suppresses some DDImage warnings
     USE_GLEW                   # Nuke's GL requirement
     _USE_MATH_DEFINES          # required by Nuke 16 DDImage headers on MSVC
+    EXR_INSPECTOR_TINYEXR_ONLY=1  # use tinyexr only — no OpenEXR C Core dependency
 )
 
 # --------------------------------------------------------------------------

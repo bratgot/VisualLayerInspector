@@ -12,6 +12,10 @@
 #include "DDImage/Knobs.h"
 #include "DDImage/Channel.h"
 #include "DDImage/Row.h"
+#include "DDImage/Knob.h"
+
+// Direct EXR header reader — bypasses Nuke's validate entirely
+#include "exr_inspector.h"
 
 #ifndef FN_EXPORT
   #ifdef _WIN32
@@ -228,6 +232,63 @@ static QImage renderThumbnailStrided(Iop& input, const LayerChannels& lc,
 }
 
 // ============================================================================
+//  Find the EXR file path from upstream Read node
+// ============================================================================
+static std::string resolveFramePattern(const std::string& pattern, int frame)
+{
+    std::string result = pattern;
+
+    // Replace #### with zero-padded frame number
+    size_t hashStart = result.find('#');
+    if (hashStart != std::string::npos) {
+        size_t hashEnd = hashStart;
+        while (hashEnd < result.size() && result[hashEnd] == '#') ++hashEnd;
+        int padWidth = static_cast<int>(hashEnd - hashStart);
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%0*d", padWidth, frame);
+        result.replace(hashStart, hashEnd - hashStart, buf);
+        return result;
+    }
+
+    // Replace %04d / %d style patterns
+    size_t pct = result.find('%');
+    if (pct != std::string::npos) {
+        char buf[1024];
+        snprintf(buf, sizeof(buf), result.c_str(), frame);
+        return std::string(buf);
+    }
+
+    return result;
+}
+
+static std::string findUpstreamFilePath(Op* startOp)
+{
+    // Walk the input chain to find a node with a "file" knob (Read node)
+    Op* cur = startOp;
+    int depth = 0;
+    while (cur && depth < 20) {
+        Knob* fileKnob = cur->knob("file");
+        if (fileKnob) {
+            const char* text = fileKnob->get_text();
+            if (text && text[0]) {
+                std::string path(text);
+                // Check it looks like an EXR
+                std::string lower = path;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (lower.find(".exr") != std::string::npos) {
+                    // Resolve frame patterns using Nuke's current frame
+                    int frame = static_cast<int>(cur->outputContext().frame());
+                    return resolveFramePattern(path, frame);
+                }
+            }
+        }
+        cur = cur->input(0);
+        ++depth;
+    }
+    return {};
+}
+
+// ============================================================================
 //  Op definition
 // ============================================================================
 class VisualLayerInspectorOp : public NoIop {
@@ -352,7 +413,7 @@ public:
             return 1;
         }
         if (k->is("inputChange")) {
-            if (inspectorDialog_)
+            if (inspectorDialog_ && inspectorDialog_->isVisible())
                 inspectorDialog_->rescan();
             return 1;
         }
@@ -428,23 +489,70 @@ private:
 
         auto* self = this;
 
-        auto prepare = [self]() -> PrepareResult {
+        // Phase 1: fast scan — try direct EXR header read, fall back to Nuke
+        auto scanLayers = [self]() -> ScanResult {
+            ScanResult sr;
+            Op* rawInp = self->input(0);
+            if (!rawInp) {
+                sr.errorMsg = "No input connected.";
+                return sr;
+            }
+
+            // ── Try direct EXR header read (bypasses Nuke's validate) ──
+            std::string exrPath = findUpstreamFilePath(rawInp);
+            if (!exrPath.empty()) {
+                auto result = exrinspector::EXRInspector::inspect(exrPath);
+                if (result.success && !result.parts.empty()) {
+                    sr.valid = true;
+                    for (auto& part : result.parts) {
+                        for (auto& layer : part.layers) {
+                            if (layer.name.empty()) continue;  // skip default/root layer
+                            sr.layerNames.push_back(layer.name);
+                            sr.channelCounts.push_back(static_cast<int>(layer.channels.size()));
+                        }
+                    }
+                    if (!sr.layerNames.empty()) return sr;
+                    // Inspector found no named layers — fall through to Nuke
+                }
+            }
+
+            // ── Fallback: Nuke validate(false) ──
+            Iop* iop = dynamic_cast<Iop*>(rawInp);
+            if (!iop) {
+                sr.errorMsg = "Input is not an Iop.";
+                return sr;
+            }
+            iop->validate(false);
+            const Info& info = iop->info();
+            ChannelSet allCh = info.channels();
+            if (allCh.empty()) {
+                sr.errorMsg = "No channels found on the input.";
+                return sr;
+            }
+            auto layers = collectLayers(allCh);
+            if (layers.empty()) {
+                sr.errorMsg = "No layers found on the input.";
+                return sr;
+            }
+            sr.valid = true;
+            sr.layerNames.reserve(layers.size());
+            sr.channelCounts.reserve(layers.size());
+            for (const auto& li : layers) {
+                sr.layerNames.push_back(li.name);
+                sr.channelCounts.push_back(li.channelCount);
+            }
+            return sr;
+        };
+
+        // Phase 2: full prepare — validate(true) + request + render callback
+        auto prepareRender = [self]() -> PrepareResult {
             PrepareResult pr;
             PreparedInput pi = self->prepareInput();
             if (!pi.valid) {
-                pr.valid = false;
-                pr.errorMsg = pi.iop
-                    ? "No layers found on the connected input."
-                    : "No input connected, or input is not an Iop.";
+                pr.errorMsg = "Failed to prepare input for rendering.";
                 return pr;
             }
             pr.valid = true;
-            pr.layerNames.reserve(pi.layers.size());
-            pr.channelCounts.reserve(pi.layers.size());
-            for (const auto& li : pi.layers) {
-                pr.layerNames.push_back(li.name);
-                pr.channelCounts.push_back(li.channelCount);
-            }
             pr.renderOne = self->makeRenderCallback(pi);
             return pr;
         };
@@ -452,6 +560,9 @@ private:
         auto onLayerSelected = [](const std::string& layerName) {
             std::string cmd =
                 "import nuke\n"
+                "if not hasattr(nuke, '_vli_original_channel'):\n"
+                "    v = nuke.activeViewer()\n"
+                "    nuke._vli_original_channel = v.node()['channels'].value() if v else 'rgba'\n"
                 "v = nuke.activeViewer()\n"
                 "if v:\n"
                 "    v.node()['channels'].setValue('" + layerName + "')\n";
@@ -504,24 +615,18 @@ private:
         settings.showCustom      = showCustom_;
 
         // Heap-allocate — dialog lives beyond knob_changed return
-        auto* dlg = new InspectorDialog(prepare, onLayerSelected, onCreateShuffle, settings, nullptr);
+        auto* dlg = new InspectorDialog(scanLayers, prepareRender, onLayerSelected, onCreateShuffle, settings, nullptr);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         inspectorDialog_ = dlg;
 
-        // Save the viewer's current channel to a Python global, restore on close
-        runPython(
-            "import nuke\n"
-            "_vli_original_channel = 'rgba'\n"
-            "v = nuke.activeViewer()\n"
-            "if v:\n"
-            "    _vli_original_channel = v.node()['channels'].value()\n");
-
+        // Restore viewer channel on close — save happens lazily on first layer click
         dlg->setOnClose([]() {
             runPython(
                 "import nuke\n"
                 "v = nuke.activeViewer()\n"
-                "if v and '_vli_original_channel' in dir():\n"
-                "    v.node()['channels'].setValue(_vli_original_channel)\n");
+                "if v and hasattr(nuke, '_vli_original_channel'):\n"
+                "    v.node()['channels'].setValue(nuke._vli_original_channel)\n"
+                "    del nuke._vli_original_channel\n");
         });
 
         // show() returns immediately — knob_changed exits, Nuke resumes
