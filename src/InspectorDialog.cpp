@@ -914,6 +914,9 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
+    const std::string textFilter = filterEdit_
+        ? toLower(filterEdit_->text().toStdString()) : std::string();
+
     // Detach buttons
     for (auto& le : layers_) {
         if (le.button) le.button->setParent(nullptr);
@@ -921,7 +924,7 @@ void InspectorDialog::reflowGridFast()
     for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
     groupHeaders_.clear();
 
-    // Fresh container — no stale grid rows
+    // Fresh container
     auto* newContainer = new QWidget;
     newContainer->setUpdatesEnabled(false);
     grid_ = new QGridLayout(newContainer);
@@ -932,11 +935,20 @@ void InspectorDialog::reflowGridFast()
     int row = 0;
     int col = 0;
     for (auto& le : layers_) {
-        if (le.button && le.button->isVisible()) {
-            grid_->addWidget(le.button, row, col);
-            col++;
-            if (col >= cols) { row++; col = 0; }
-        }
+        if (!le.button) continue;
+        // Compute visibility from data, not widget state
+        bool catVisible = true;
+        auto it = categoryChecks_.find(le.category);
+        if (it != categoryChecks_.end())
+            catVisible = it->second->isChecked();
+        bool textVisible = textFilter.empty()
+            || (toLower(le.name).find(textFilter) != std::string::npos);
+        if (!catVisible || !textVisible) continue;
+
+        le.button->setVisible(true);
+        grid_->addWidget(le.button, row, col);
+        col++;
+        if (col >= cols) { row++; col = 0; }
     }
 
     newContainer->setUpdatesEnabled(true);
