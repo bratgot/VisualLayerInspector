@@ -1,156 +1,167 @@
-# Visual Layer Inspector for Nuke
+# Visual Layer Inspector
 
-A fast, interactive thumbnail grid for browsing EXR layers and AOVs in Foundry Nuke. Click any layer to instantly switch the Viewer — no more scrolling through channel dropdowns.
+**A thumbnail browser for multi-layer EXR files in Nuke.**
 
-![Version](https://img.shields.io/badge/version-v11-green)
-![Nuke](https://img.shields.io/badge/Nuke-14%20%7C%2016-blue)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+Browse every AOV on a node as a visual grid. Click a thumbnail to switch the Viewer. Built as a native C++ NDK plugin for Nuke 14 and Nuke 16.
+
+> Created by Marten Blumen
+
+---
 
 ## Features
 
-- **Thumbnail grid** of every layer/AOV in your EXR, rendered progressively
-- **Click to view** — switches the active Viewer to that layer instantly
-- **Modeless window** — Nuke stays fully interactive while the inspector is open
-- **Smart sorting** — sort by Type Group, Alphabetical, Channel Count, or Original Order
-- **Type Group auto-categorisation** — layers are classified into Lighting, Utility, Data, Cryptomatte, and Custom based on naming conventions
-- **Filter** — type to search across layer names in real time
-- **Adjustable thumbnail size** — smooth slider resizes live during drag
-- **Proxy modes** — Full, 2x, 4x, 8x for fast browsing of heavy EXRs
-- **Stop / Resume** — pause thumbnail generation at any time
-- **Channel count badges** — each layer shows its channel count (e.g. `[3ch]`, `[4ch]`)
+- **Thumbnail grid** — every layer/AOV rendered as a browsable thumbnail
+- **Click to view** — click any thumbnail to switch the active Viewer to that layer
+- **Type AOV sorting** — auto-categorises layers into Lighting, Utility, Data, Cryptomatte, and Custom groups
+- **Category filters** — show/hide entire layer types with checkboxes
+- **Text filter** — search by name (e.g. "spec", "depth", "crypto")
+- **Proxy modes** — Full Quality, 2x, 4x, 8x for fast browsing of heavy EXRs
+- **Resizable thumbnails** — drag the size slider to fit more layers or see more detail
+- **Shuffle Export** — shift+click to pin layers, then batch-create Shuffle2 nodes for all selected
+- **Selection highlights** — pink border shows the layer you're viewing, blue border shows pinned layers for export
+- **Auto-rescan** — reconnect to a different input and the grid rebuilds automatically
+- **Viewer restore** — the Viewer returns to its original channel when the inspector closes
+- **Modeless** — Nuke stays fully interactive while the inspector is open
+- **Configurable from the properties panel** — proxy, sort mode, thumbnail size, and category filters all available as node knobs
 
-## Layer Categories (Type Group Sort)
+## Sort Modes
+
+| Mode | Description |
+|------|-------------|
+| **Type AOV** | Groups layers by category (Lighting → Utility → Data → Cryptomatte → Custom) |
+| **Alphabetical** | A–Z by layer name |
+| **Channel Count** | Most channels first |
+| **Original Order** | As they appear in the EXR |
+
+## Layer Categories
 
 | Category | Matches |
-|---|---|
-| **Lighting** | diffuse, specular, reflection, emission, sss, albedo, shadow, gi, glossy... |
-| **Utility** | depth, normal, position, motion, uv, ao, fresnel, curvature, opacity... |
-| **Data** | id, mask, matte, object, material, puzzle, holdout... |
+|----------|---------|
+| **Lighting** | diffuse, specular, reflection, emission, sss, indirect, direct, albedo, coat... |
+| **Utility** | depth, normal, position, motion, uv, ao, fresnel, curvature... |
+| **Data** | id, mask, matte, object, material, puzzle... |
 | **Cryptomatte** | crypto* |
 | **Custom** | everything else |
 
 ## Installation
 
-### C++ Plugin (recommended)
+### Quick install (Windows)
 
-The C++ version uses the NDK Row API for direct pixel access — no temp files, no render nodes.
+Download the latest release zip and double-click **install.bat**.
 
-1. Clone this repo or download the latest release
-2. Run `build_all.bat` from a Visual Studio Developer Command Prompt
-3. Restart Nuke
+### Manual install
 
-The build script compiles for both Nuke 14 and 16 and installs to `~/.nuke/VisualLayerInspector/`.
+1. Create `.nuke/VisualLayerInspector/` with `nuke14/` and `nuke16/` subfolders
+2. Copy the correct DLL into each subfolder
+3. Copy `init.py` to your `.nuke/` folder (auto-detects Nuke version)
+4. Copy `menu.py` to your `.nuke/` folder (adds Filter menu entry + F4 shortcut)
+5. Restart Nuke — the node appears under **Filter > VisualLayerInspector**
 
-### Python Version
-
-The Python version works without compiling but uses nuke.execute() to render thumbnails via temporary JPEG files.
-
-1. Copy `src/visual_layer_inspector.py` to `~/.nuke/`
-2. Add to your `menu.py`:
-
-```python
-import visual_layer_inspector
-nuke.menu('Nuke').addCommand(
-    'Tools/Visual Layer Inspector',
-    'visual_layer_inspector.launch()',
-    'ctrl+shift+l'
-)
-```
-
-3. Restart Nuke
+See [INSTALL.md](INSTALL.md) for full details.
 
 ## Usage
 
-### C++ Version
-1. Create a **VisualLayerInspector** node (found under Filter)
-2. Connect it to any node with multiple layers (e.g. a Read node with a multi-layer EXR)
-3. Open the node properties and click **Launch Inspector**
-
-### Python Version
-1. Select a node with layers
-2. Run **Tools > Visual Layer Inspector** from the menu (or `Ctrl+Shift+L`)
+1. Connect any multi-layer node (e.g. an EXR Read) to the VisualLayerInspector input
+2. Set Proxy, Sort, and Category preferences in the properties panel
+3. Click **Launch Inspector**
+4. Click thumbnails to switch the Viewer
+5. Shift+click to pin layers for batch Shuffle Export
+6. Close the inspector — the Viewer returns to the original channel
 
 ## Building from Source
 
-### Requirements
+### Prerequisites
 
-- Visual Studio 2022 (Community or higher)
-- Nuke 14 and/or Nuke 16 NDK
+- Visual Studio 2022 (MSVC)
+- CMake
+- Nuke 14.1+ and/or Nuke 16.0+ with DDImage SDK
+- Qt 5.15 SDK (for Nuke 14) and/or Qt 6.5 SDK (for Nuke 16)
 
 ### Build
 
-Open a **Developer Command Prompt for VS 2022** and run:
+Run from a **x64 Native Tools Command Prompt for VS 2022**:
 
 ```
-cd C:\dev\VisualLayerInspector
-build_all.bat
+.\build_all.bat
 ```
 
-The script:
-- Checks out the `nuke/14.1` branch, compiles the Nuke 14 DLL
-- Checks out the `main` branch, compiles the Nuke 16 DLL
-- Copies both DLLs and the Python file to `~/.nuke/`
+This builds both Nuke 14 and Nuke 16 versions, installs locally to `~/.nuke/VisualLayerInspector/`, and creates a distributable zip in `dist/`.
 
-### Branch Structure
+Configure paths at the top of `build_all.bat`:
 
-| Branch | Purpose |
-|---|---|
-| `main` | Nuke 16 source (Qt6, Python 3.11+) |
-| `nuke/14.1` | Nuke 14 source (Qt5, Python 3.9) |
+```batch
+set NUKE14_DIR=C:/Program Files/Nuke14.1v8
+set NUKE16_DIR=C:/Program Files/Nuke16.0v8
+set QT5_SDK=C:/Qt/5.15.2/msvc2019_64
+set QT6_SDK=C:/Qt/6.5.3/msvc2019_64
+```
 
-Both branches share the same source files. The build system handles API differences automatically.
-
-## File Structure
+### Repository Structure
 
 ```
-src/
-├── InspectorDialog.h       # Qt dialog — UI, grid, sorting, slider
-├── InspectorDialog.cpp     # Dialog implementation
-├── VisualLayerInspector.cpp # Nuke NDK plugin — Op, Row API renderer
-└── visual_layer_inspector.py # Python version (standalone)
+├── src/
+│   ├── InspectorDialog.h          ← Dialog UI + thumbnail grid
+│   ├── InspectorDialog.cpp
+│   └── VisualLayerInspector.cpp   ← Nuke Op + NDK integration
+├── python/
+│   └── visual_layer_inspector.py  ← Legacy Python version (reference only)
+├── dist_files/
+│   ├── init.py                    ← Startup config for distribution
+│   └── menu.py                    ← Menu entry for distribution
+├── CMakeLists.txt
+├── build_all.bat                  ← Multi-version build + package script
+├── install.bat                    ← End-user installer
+├── INSTALL.md                     ← Installation guide
+└── README.md
 ```
+
+### Git Branches
+
+| Branch | Target |
+|--------|--------|
+| `main` | Nuke 16 (Qt 6) |
+| `nuke/14.1` | Nuke 14 (Qt 5) |
+
+Both branches share the same source — the build script auto-switches between them.
 
 ## Changelog
 
-### v11
-- Modeless window — Nuke stays fully interactive, Viewer updates live when clicking layers
+### v1.9.0
+- Full properties panel with proxy, sort, thumbnail size, and category knobs
+- Shuffle Export — shift+click to pin layers, batch-create Shuffle2 nodes
+- Pink/blue selection highlights (viewing vs pinned)
+- Two-phase init: fast layer scan, deferred render setup
+- Progressive thumbnail rendering with per-frame repaint
+- Viewer channel auto-restores on close
+- Auto-rescan when input changes
+- Thumbnail resolution matches slider max (400px)
+- Fresh grid container on every rebuild — no overlap bugs
 
-### v10
-- Sort dropdown with 5 modes (A→Z, Z→A, Type Group, Channel Count, Original Order)
-- Auto-categorisation of layers into Lighting, Utility, Data, Cryptomatte, Custom
-- Group headers in Type Group sort mode
-- Channel count badges on each layer button
+### v18.x (pre-release)
+- Auto-thumbnail generation on launch
+- setUpdatesEnabled batching for smooth UI
+- Geometry-only slider drag
+- Placeholder thumbnails during generation
+- Category filter checkboxes with All button
+- Persistent buttons surviving sort operations
+- Instant sort via button repositioning
+- Modeless dialog with live Viewer updates
 
-### v9
-- Smooth thumbnail size slider — resizes in-place during drag, reflows grid on release
+### Earlier versions
+- v17: Instant sort, All button, empty state
+- v16: All button, empty state message
+- v15: Category filter checkboxes
+- v12: Smooth grid reflow during slider drag
+- v11: Modeless window, live Viewer, Python version
+- v9: Smooth thumbnail slider
+- v8: Auto-scan + auto-generate, stop/resume
+- v7: User-driven scan + generate workflow
 
-### v8
-- Auto-scan and auto-generate — dialog opens, scans layers, starts rendering automatically
-- No manual button clicks needed
+## Requirements
 
-### v7
-- User-driven workflow with exec() modal dialog
-- Fixed UI freeze caused by knob_changed blocking Qt event loop
-- Version number visible in title bar, badge, and footer
-
-## Technical Notes
-
-### Why modeless with show()?
-
-Nuke's `knob_changed` callback blocks the Qt event loop. Earlier versions used `exec()` to create a nested event loop (which solved the freeze), but this made the Viewer unresponsive to layer changes. v11 uses `show()` with heap allocation and `WA_DeleteOnClose` — the dialog constructor does zero Nuke work, and `showEvent` defers all initialization via `singleShot(0)` so `knob_changed` returns immediately.
-
-### Row API with strided fetching (C++)
-
-The C++ renderer reads pixels directly from the input Iop using the Row API, sampling every Nth row and column to produce thumbnails. This avoids creating temporary Nuke nodes or writing files to disk, and keeps memory usage minimal (~240 rows per thumbnail regardless of source resolution).
-
-### Progressive rendering
-
-Thumbnails render one at a time via `QTimer::singleShot(1)` chaining. Each render completes, updates its button icon, then yields back to the event loop before starting the next one. This keeps the UI responsive throughout — you can filter, resize, stop, or click layers while rendering continues in the background.
-
-## Credits
-
-Created by **Marten Blumen**
+- Nuke 14.1+ or Nuke 16.0+
+- Windows (macOS/Linux not currently supported)
 
 ## License
 
-MIT.
+All rights reserved. Contact the author for licensing enquiries.
