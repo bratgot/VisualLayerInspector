@@ -20,7 +20,7 @@
 const char* layerCategoryName(LayerCategory cat)
 {
     switch (cat) {
-        case LayerCategory::Default:     return "Default";
+        case LayerCategory::Default:     return "RGBA";
         case LayerCategory::Lighting:    return "Lighting";
         case LayerCategory::Utility:     return "Utility";
         case LayerCategory::Data:        return "Data";
