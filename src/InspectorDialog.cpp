@@ -452,6 +452,7 @@ void InspectorDialog::rescan()
     }
 
     scanned_ = false;
+    initializing_ = false;
     showFired_ = true;       // don't re-trigger showEvent init
     currentLayer_.clear();
     layers_.clear();
@@ -469,14 +470,19 @@ void InspectorDialog::rescan()
 // ============================================================================
 void InspectorDialog::autoInit()
 {
-    if (scanned_ || !prepare_) return;
+    if (scanned_ || initializing_ || !prepare_) return;
+    initializing_ = true;
 
     statusLabel_->setText("Reading EXR headers (first open may be slow)...");
+    progressBar_->setRange(0, 0);
+    progressBar_->setFormat("Scanning...");
     setCursor(Qt::WaitCursor);
-    repaint();
+    // Force Qt to paint the status update before we block on prepare_()
+    QApplication::processEvents();
 
     PrepareResult result = prepare_();
     setCursor(Qt::ArrowCursor);
+    initializing_ = false;
 
     if (!result.valid) {
         statusLabel_->setText(
