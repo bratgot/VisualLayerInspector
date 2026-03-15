@@ -613,14 +613,15 @@ private:
                 "    inp = vli.input(0)\n"
                 "    for n in nuke.selectedNodes(): n.setSelected(False)\n"
                 "    layers = " + pyList + "\n"
+                "    base_x = inp.xpos()\n"
+                "    base_y = vli.ypos() + 80\n"
                 "    for i, layer in enumerate(layers):\n"
-                "        inp.setSelected(True)\n"
-                "        s = nuke.createNode('Shuffle2')\n"
+                "        s = nuke.nodes.Shuffle2()\n"
+                "        s.setInput(0, inp)\n"
                 "        s['in1'].setValue(layer)\n"
                 "        s['label'].setValue('[value in1]')\n"
-                "        s.setXYpos(inp.xpos() + (i * 110), inp.ypos() + 80)\n"
-                "        s.setSelected(False)\n"
-                "        inp.setSelected(False)\n";
+                "        s.setXYpos(base_x + (i * 110), base_y)\n"
+                "        s.setSelected(False)\n";
             runPython(cmd);
         };
 
