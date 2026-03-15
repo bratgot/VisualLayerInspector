@@ -33,11 +33,14 @@
 #include <QApplication>
 #include <QShowEvent>
 #include <QCloseEvent>
+#include <QThread>
+#include <QMutex>
 
 #include <string>
 #include <vector>
 #include <map>
 #include <functional>
+#include <atomic>
 
 static constexpr const char* kVLI_Version = "v1.9.0";
 
@@ -103,6 +106,41 @@ struct InspectorSettings {
 };
 
 // ============================================================================
+//  Background thumbnail renderer
+// ============================================================================
+class ThumbnailWorker : public QObject {
+    Q_OBJECT
+public:
+    ThumbnailWorker(RenderOneCallback renderOne, int proxyStep)
+        : renderOne_(std::move(renderOne)), proxyStep_(proxyStep) {}
+
+    void stop() { stopped_ = true; }
+
+public slots:
+    void renderBatch(QVector<int> indices)
+    {
+        stopped_ = false;
+        for (int idx : indices) {
+            if (stopped_) break;
+            QImage img;
+            if (renderOne_)
+                img = renderOne_(idx, proxyStep_);
+            emit thumbnailReady(idx, img);
+        }
+        emit batchFinished();
+    }
+
+signals:
+    void thumbnailReady(int prepareIndex, QImage image);
+    void batchFinished();
+
+private:
+    RenderOneCallback renderOne_;
+    int  proxyStep_;
+    std::atomic<bool> stopped_{false};
+};
+
+// ============================================================================
 //  InspectorDialog
 // ============================================================================
 class InspectorDialog : public QDialog {
@@ -114,7 +152,7 @@ public:
                              ShuffleCallback  onCreateShuffle,
                              const InspectorSettings& settings = InspectorSettings(),
                              QWidget* parent = nullptr);
-    ~InspectorDialog() override = default;
+    ~InspectorDialog() override;
 
     void rescan();                     // re-read input and regenerate thumbnails
     void setOnClose(std::function<void()> cb) { onClose_ = std::move(cb); }
@@ -127,7 +165,8 @@ private slots:
     void autoInit();
     void onStopResume();
     void onRegenerate();
-    void renderNextThumbnail();
+    void onThumbnailReady(int prepareIndex, QImage image);
+    void onBatchFinished();
     void filterLayers(const QString& text);
     void onThumbnailSizeDrag(int value);
     void onThumbnailSizeRelease();
@@ -147,7 +186,6 @@ private:
     int  computeColumns() const;
     QImage makePlaceholder() const;
     void beginRendering();
-    void scheduleNextRender();
     void stopRendering();
     void updateProgress();
     void updateCategoryCounts();
@@ -163,11 +201,14 @@ private:
     std::string               currentLayer_;
     std::function<void()>     onClose_;
 
-    int           nextRenderIdx_ = 0;
+    int           renderedCount_ = 0;
     bool          rendering_     = false;
     bool          scanned_       = false;
     bool          showFired_     = false;
     QElapsedTimer perfTimer_;
+
+    QThread*           workerThread_ = nullptr;
+    ThumbnailWorker*   worker_       = nullptr;
     int           proxyStep_     = 1;
     int           thumbWidth_    = 200;
     int           thumbHeight_   = 120;
