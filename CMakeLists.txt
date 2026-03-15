@@ -68,47 +68,41 @@ endif()
 message(STATUS "DDImage library: ${DDIMAGE_LIBRARY}")
 
 # --------------------------------------------------------------------------
-#  Qt 6 — platform-specific discovery
+#  Qt — auto-detect Qt5 or Qt6 based on which SDK is provided
 # --------------------------------------------------------------------------
 #
-# Windows:
-#   Nuke bundles Qt 6 DLLs but no cmake configs / headers / import libs.
-#   We require a standalone Qt 6 SDK for compiling. Set QT6_SDK_DIR to the
-#   compiler-specific prefix, e.g. C:/Qt/6.7.2/msvc2022_64
+# Pass -DQT5_SDK_DIR=... for Nuke 14 (Qt5) builds
+# Pass -DQT6_SDK_DIR=... for Nuke 16 (Qt6) builds
 #
-# Linux / macOS:
-#   Nuke typically ships Qt with cmake configs in its lib tree, or we fall
-#   back to a system / standalone Qt.
+# build_all.bat passes the correct one for each branch.
 # --------------------------------------------------------------------------
-if(WIN32)
-    # --- Windows: use standalone Qt 6 SDK ---
-    if(NOT DEFINED QT6_SDK_DIR)
-        if(DEFINED ENV{QT6_SDK_DIR})
-            set(QT6_SDK_DIR $ENV{QT6_SDK_DIR})
-        else()
-            message(FATAL_ERROR
-                "QT6_SDK_DIR not set.\n"
-                "Nuke 16 on Windows ships Qt 6 DLLs but not the headers or cmake\n"
-                "config files needed to build C++ plugins that use Qt.\n\n"
-                "Install the Qt 6 online installer (https://www.qt.io/download-qt-installer)\n"
-                "and select the MSVC 2022 64-bit component. Then pass:\n"
-                "  -DQT6_SDK_DIR=\"C:/Qt/6.7.2/msvc2022_64\"\n"
-                "(adjust the version to match what Nuke 16.0v8 ships).")
-        endif()
-    endif()
 
-    if(NOT EXISTS "${QT6_SDK_DIR}/lib/cmake/Qt6/Qt6Config.cmake")
-        message(FATAL_ERROR
-            "Cannot find Qt6Config.cmake in ${QT6_SDK_DIR}/lib/cmake/Qt6/\n"
-            "Check that QT6_SDK_DIR points to the correct Qt prefix, e.g.\n"
-            "  C:/Qt/6.7.2/msvc2022_64")
-    endif()
+# Pick up from environment if not passed on command line
+if(NOT DEFINED QT5_SDK_DIR AND DEFINED ENV{QT5_SDK_DIR})
+    set(QT5_SDK_DIR $ENV{QT5_SDK_DIR})
+endif()
+if(NOT DEFINED QT6_SDK_DIR AND DEFINED ENV{QT6_SDK_DIR})
+    set(QT6_SDK_DIR $ENV{QT6_SDK_DIR})
+endif()
 
+if(DEFINED QT5_SDK_DIR)
+    # ── Qt 5 path (Nuke 14) ──
+    message(STATUS "Qt5 SDK dir: ${QT5_SDK_DIR}")
+    list(PREPEND CMAKE_PREFIX_PATH "${QT5_SDK_DIR}")
+    find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
+    message(STATUS "Found Qt5: ${Qt5Core_VERSION}")
+    set(QT_LIBS Qt5::Core Qt5::Gui Qt5::Widgets)
+
+elseif(DEFINED QT6_SDK_DIR)
+    # ── Qt 6 path (Nuke 16) ──
     message(STATUS "Qt6 SDK dir: ${QT6_SDK_DIR}")
     list(PREPEND CMAKE_PREFIX_PATH "${QT6_SDK_DIR}")
+    find_package(Qt6 COMPONENTS Core Gui Widgets REQUIRED)
+    message(STATUS "Found Qt6: ${Qt6Core_VERSION}")
+    set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 
-else()
-    # --- Linux / macOS: try Nuke's bundled Qt first, then system ---
+elseif(NOT WIN32)
+    # ── Linux / macOS: try Nuke's bundled Qt ──
     if(APPLE)
         file(GLOB NUKE_APP "${NUKE_INSTALL_DIR}/*.app")
         if(NUKE_APP)
@@ -118,11 +112,22 @@ else()
     endif()
     list(APPEND CMAKE_PREFIX_PATH "${NUKE_INSTALL_DIR}/lib/cmake")
     list(APPEND CMAKE_PREFIX_PATH "${NUKE_INSTALL_DIR}")
-endif()
+    # Try Qt6 first, fall back to Qt5
+    find_package(Qt6 COMPONENTS Core Gui Widgets QUIET)
+    if(Qt6_FOUND)
+        message(STATUS "Found Qt6: ${Qt6Core_VERSION}")
+        set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
+    else()
+        find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
+        message(STATUS "Found Qt5: ${Qt5Core_VERSION}")
+        set(QT_LIBS Qt5::Core Qt5::Gui Qt5::Widgets)
+    endif()
 
-find_package(Qt6 COMPONENTS Core Gui Widgets REQUIRED)
-message(STATUS "Found Qt6: ${Qt6Core_VERSION}")
-set(QT_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
+else()
+    message(FATAL_ERROR
+        "Neither QT5_SDK_DIR nor QT6_SDK_DIR is set.\n"
+        "Pass -DQT5_SDK_DIR=... for Nuke 14 or -DQT6_SDK_DIR=... for Nuke 16.")
+endif()
 
 # Enable MOC for Q_OBJECT macros
 set(CMAKE_AUTOMOC ON)
@@ -216,7 +221,9 @@ message(STATUS "")
 message(STATUS "=== Build configured ===")
 message(STATUS "  Plugin:  VisualLayerInspector")
 message(STATUS "  Nuke:    ${NUKE_INSTALL_DIR}")
-if(WIN32)
+if(DEFINED QT5_SDK_DIR)
+    message(STATUS "  Qt SDK:  ${QT5_SDK_DIR}")
+elseif(DEFINED QT6_SDK_DIR)
     message(STATUS "  Qt SDK:  ${QT6_SDK_DIR}")
 endif()
 message(STATUS "  Output:  ${CMAKE_CURRENT_BINARY_DIR}")

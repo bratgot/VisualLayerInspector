@@ -126,7 +126,7 @@ Both branches share the same source — the build script auto-switches between t
 
 ## Changelog
 
-### v1.9.0
+### v2.0.0
 - Full properties panel with proxy, sort, thumbnail size, and category knobs
 - Shuffle Export — shift+click to pin layers, batch-create Shuffle2 nodes
 - Pink/blue selection highlights (viewing vs pinned)
