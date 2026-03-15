@@ -147,19 +147,13 @@ static LayerChannels resolveLayerChannels(const std::string& layer,
 {
     LayerChannels lc;
 
-    // Special case: rgba = default channels without layer prefix
+    // Special case: rgba = Nuke's default channels
     if (layer == "rgba") {
-        foreach (z, allChannels) {
-            std::string name = getName(z);
-            if (name.find('.') != std::string::npos) continue;
-            std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-            if      (name == "red"   || name == "r") lc.r = z;
-            else if (name == "green" || name == "g") lc.g = z;
-            else if (name == "blue"  || name == "b") lc.b = z;
-            else if (name == "alpha" || name == "a") lc.a = z;
-            lc.count++;
-        }
-        if (lc.count == 1) { lc.g = lc.r; lc.b = lc.r; }
+        lc.r = Chan_Red;
+        lc.g = Chan_Green;
+        lc.b = Chan_Blue;
+        lc.a = Chan_Alpha;
+        lc.count = 4;
         return lc;
     }
 
