@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v1.9.0
+// InspectorDialog.h — Visual Layer Inspector v2.0.0
 //
-// v1.9.0: Batch all layout changes via setUpdatesEnabled(false/true) —
+// v2.0.0: Batch all layout changes via setUpdatesEnabled(false/true) —
 //        slider drag, reflow, sort, and buildGrid all batch into ONE repaint.
 //        Buttons with no thumbnail show a dark placeholder outline.
 //      without destroying/recreating. All button for category checkboxes.
@@ -39,18 +39,28 @@
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v1.9.0";
+static constexpr const char* kVLI_Version = "v2.0.0";
 
 // ============================================================================
 //  Callback types
 // ============================================================================
-using RenderOneCallback = std::function<QImage(int layerIndex, int proxyStep)>;
-using LayerCallback     = std::function<void(const std::string&)>;
-using ShuffleCallback   = std::function<void(const std::vector<std::string>&)>;
+using RenderOneCallback  = std::function<QImage(int layerIndex, int proxyStep)>;
+using LayerCallback      = std::function<void(const std::string&)>;
+using ShuffleCallback    = std::function<void(const std::vector<std::string>&)>;
+using RenderSetupCallback = std::function<RenderOneCallback()>;
 
-struct PrepareResult {
+// Phase 1: fast scan — just layer names (validate(false), no request)
+struct ScanResult {
     std::vector<std::string> layerNames;
     std::vector<int>         channelCounts;
+    bool                     valid = false;
+    std::string              errorMsg;
+};
+using ScanCallback = std::function<ScanResult()>;
+
+// Phase 2: deferred — full validate + request + render callback
+// Called after the grid is already visible with placeholders
+struct PrepareResult {
     RenderOneCallback        renderOne;
     bool                     valid = false;
     std::string              errorMsg;
@@ -109,7 +119,8 @@ class InspectorDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit InspectorDialog(PrepareCallback prepare,
+    explicit InspectorDialog(ScanCallback    scanLayers,
+                             PrepareCallback prepareRender,
                              LayerCallback   onLayerSelected,
                              ShuffleCallback  onCreateShuffle,
                              const InspectorSettings& settings = InspectorSettings(),
@@ -154,7 +165,8 @@ private:
     void updateSelectionStyle(int layerIdx);
     void updateShuffleButton();
 
-    PrepareCallback           prepare_;
+    ScanCallback              scanLayers_;
+    PrepareCallback           prepareRender_;
     LayerCallback             onLayerSelected_;
     ShuffleCallback           onCreateShuffle_;
     RenderOneCallback         renderOne_;

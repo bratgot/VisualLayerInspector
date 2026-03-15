@@ -22,7 +22,7 @@ set QT6_SDK=C:/Qt/6.5.3/msvc2019_64
 
 set INSTALL_DIR=%USERPROFILE%\.nuke\VisualLayerInspector
 
-set VERSION=v18.4
+set VERSION=v2.0.0
 
 :: -------------------------------------------------------------------
 ::  Remember current branch and stash any uncommitted changes

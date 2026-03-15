@@ -1,4 +1,4 @@
-# Visual Layer Inspector v18.4 — Installation
+# Visual Layer Inspector v2.0.0 — Installation
 
 ## What's in this package
 

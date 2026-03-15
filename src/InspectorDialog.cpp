@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v1.9.0
+// InspectorDialog.cpp — Visual Layer Inspector v2.0.0
 //
-// v1.9.0: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+// v2.0.0: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
 //        Buttons without thumbnails show a dark placeholder outline.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
@@ -851,7 +851,7 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
 
-    // --- v1.9.0: geometry only during drag — pixmaps rebuild on release ---
+    // --- v2.0.0: geometry only during drag — pixmaps rebuild on release ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
