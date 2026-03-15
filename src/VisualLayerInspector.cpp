@@ -1,8 +1,8 @@
 // ============================================================================
 // VisualLayerInspector.cpp — Nuke 16 NDK Plugin
-// Version 18.4
+// Version 1.9.0
 //
-// v18.4: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
+// v1.9.0: No placeholder pixmaps, auto-thumbnails checkbox, instant sort.
 //
 // Created by Marten Blumen
 // ============================================================================
@@ -43,7 +43,7 @@ using namespace DD::Image;
 
 static const char* const kClass = "VisualLayerInspector";
 static const char* const kHelp  =
-    "Visual Layer Inspector v18.4\n\n"
+    "Visual Layer Inspector v1.9.0\n\n"
     "Connect any node with multiple layers/AOVs and press 'Launch Inspector' "
     "to open a thumbnail grid of every layer. Click a thumbnail to switch the "
     "active Viewer to that layer.\n\n"
@@ -54,8 +54,8 @@ static const char* const kHelp  =
     "Sort by Type AOV to auto-categorise layers into Lighting, Utility, "
     "Data, Cryptomatte, and Custom groups.";
 
-static constexpr int kThumbMaxWidth  = 240;
-static constexpr int kThumbMaxHeight = 160;
+static constexpr int kThumbMaxWidth  = 400;
+static constexpr int kThumbMaxHeight = 240;
 
 // ============================================================================
 //  Python helper
@@ -342,13 +342,18 @@ public:
 
         Divider(f, "");
         Text_knob(f,
-            "<i style='color:#777;'>Created by Marten Blumen  \xe2\x80\xa2  v18.4</i>");
+            "<i style='color:#777;'>Created by Marten Blumen  \xe2\x80\xa2  v1.9.0</i>");
     }
 
     int knob_changed(Knob* k) override
     {
         if (k->is("launch_inspector")) {
             launchInspector();
+            return 1;
+        }
+        if (k->is("inputChange")) {
+            if (inspectorDialog_)
+                inspectorDialog_->rescan();
             return 1;
         }
         return NoIop::knob_changed(k);
@@ -502,6 +507,22 @@ private:
         auto* dlg = new InspectorDialog(prepare, onLayerSelected, onCreateShuffle, settings, nullptr);
         dlg->setAttribute(Qt::WA_DeleteOnClose);
         inspectorDialog_ = dlg;
+
+        // Save the viewer's current channel to a Python global, restore on close
+        runPython(
+            "import nuke\n"
+            "_vli_original_channel = 'rgba'\n"
+            "v = nuke.activeViewer()\n"
+            "if v:\n"
+            "    _vli_original_channel = v.node()['channels'].value()\n");
+
+        dlg->setOnClose([]() {
+            runPython(
+                "import nuke\n"
+                "v = nuke.activeViewer()\n"
+                "if v and '_vli_original_channel' in dir():\n"
+                "    v.node()['channels'].setValue(_vli_original_channel)\n");
+        });
 
         // show() returns immediately — knob_changed exits, Nuke resumes
         dlg->show();

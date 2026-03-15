@@ -1,7 +1,7 @@
 // ============================================================================
-// InspectorDialog.cpp — Visual Layer Inspector v18.4
+// InspectorDialog.cpp — Visual Layer Inspector v1.9.0
 //
-// v18.4: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
+// v1.9.0: setUpdatesEnabled(false/true) batching on all layout-heavy operations.
 //        Buttons without thumbnails show a dark placeholder outline.
 //      their data. reorderGridFast() just repositions, zero creation.
 //      All button for category checkboxes. Empty state message.
@@ -391,17 +391,6 @@ InspectorDialog::InspectorDialog(PrepareCallback prepare,
     });
     footerLayout->addWidget(shuffleBtn_);
 
-    auto* closeRgbaBtn = new QPushButton("Close \xe2\x86\x92 RGBA");
-    closeRgbaBtn->setFixedHeight(35);
-    closeRgbaBtn->setMinimumWidth(130);
-    closeRgbaBtn->setToolTip("Close the inspector and switch the Viewer back to rgba");
-    closeRgbaBtn->setStyleSheet("font-weight: bold; background-color: #335544;");
-    connect(closeRgbaBtn, &QPushButton::clicked, this, [this]() {
-        if (onLayerSelected_) onLayerSelected_("rgba");
-        close();
-    });
-    footerLayout->addWidget(closeRgbaBtn);
-
     auto* closeBtn = new QPushButton("Close");
     closeBtn->setFixedHeight(35);
     closeBtn->setMinimumWidth(100);
@@ -429,6 +418,45 @@ void InspectorDialog::showEvent(QShowEvent* event)
         showFired_ = true;
         QTimer::singleShot(0, this, &InspectorDialog::autoInit);
     }
+}
+
+void InspectorDialog::closeEvent(QCloseEvent* event)
+{
+    stopRendering();
+    if (onClose_) onClose_();
+    QDialog::closeEvent(event);
+}
+
+// ============================================================================
+//  Rescan — re-read input and regenerate all thumbnails
+// ============================================================================
+void InspectorDialog::rescan()
+{
+    stopRendering();
+
+    // Clean up existing grid widgets before clearing layer data
+    for (auto& le : layers_) {
+        if (le.button) { le.button->setParent(nullptr); delete le.button; le.button = nullptr; }
+    }
+    for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
+    groupHeaders_.clear();
+    while (grid_->count()) {
+        QLayoutItem* item = grid_->takeAt(0);
+        if (item->widget()) { item->widget()->setParent(nullptr); delete item->widget(); }
+        delete item;
+    }
+
+    scanned_ = false;
+    showFired_ = true;       // don't re-trigger showEvent init
+    currentLayer_.clear();
+    layers_.clear();
+    nextRenderIdx_ = 0;
+
+    statusLabel_->setText("Input changed — rescanning...");
+    progressBar_->setRange(0, 0);
+    progressBar_->setFormat("Scanning layers...");
+
+    QTimer::singleShot(50, this, &InspectorDialog::autoInit);
 }
 
 // ============================================================================
@@ -700,7 +728,7 @@ void InspectorDialog::applyVisibility()
 // ============================================================================
 void InspectorDialog::reorderGridFast()
 {
-    // --- v18.4: batch all layout changes into ONE repaint ---
+    // --- v1.9.0: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -786,7 +814,7 @@ void InspectorDialog::resizeButtonsInPlace()
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
 
-    // --- v18.4: geometry only during drag — pixmaps rebuild on release ---
+    // --- v1.9.0: geometry only during drag — pixmaps rebuild on release ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -803,7 +831,7 @@ void InspectorDialog::reflowGridFast()
     const int cols = computeColumns();
     lastColumnCount_ = cols;
 
-    // --- v18.4: batch all layout changes into ONE repaint ---
+    // --- v1.9.0: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_->widget();
     if (container) container->setUpdatesEnabled(false);
 
@@ -833,7 +861,7 @@ void InspectorDialog::onThumbnailSizeRelease()
 {
     if (!scanned_) return;
 
-    // --- v18.4: rescale icons in place — no grid rebuild ---
+    // --- v1.9.0: rescale icons in place — no grid rebuild ---
     const QSize iconSize(thumbWidth_, thumbHeight_);
 
     QWidget* container = scrollArea_->widget();
@@ -885,7 +913,7 @@ int InspectorDialog::computeColumns() const
 
 void InspectorDialog::buildGrid()
 {
-    // --- v18.4: batch all layout changes into ONE repaint ---
+    // --- v1.9.0: batch all layout changes into ONE repaint ---
     QWidget* container = scrollArea_ ? scrollArea_->widget() : nullptr;
     if (container) container->setUpdatesEnabled(false);
 

@@ -2,9 +2,9 @@
 #define INSPECTOR_DIALOG_H
 
 // ============================================================================
-// InspectorDialog.h — Visual Layer Inspector v18.4
+// InspectorDialog.h — Visual Layer Inspector v1.9.0
 //
-// v18.4: Batch all layout changes via setUpdatesEnabled(false/true) —
+// v1.9.0: Batch all layout changes via setUpdatesEnabled(false/true) —
 //        slider drag, reflow, sort, and buildGrid all batch into ONE repaint.
 //        Buttons with no thumbnail show a dark placeholder outline.
 //      without destroying/recreating. All button for category checkboxes.
@@ -32,13 +32,14 @@
 #include <QElapsedTimer>
 #include <QApplication>
 #include <QShowEvent>
+#include <QCloseEvent>
 
 #include <string>
 #include <vector>
 #include <map>
 #include <functional>
 
-static constexpr const char* kVLI_Version = "v18.4";
+static constexpr const char* kVLI_Version = "v1.9.0";
 
 // ============================================================================
 //  Callback types
@@ -115,8 +116,12 @@ public:
                              QWidget* parent = nullptr);
     ~InspectorDialog() override = default;
 
+    void rescan();                     // re-read input and regenerate thumbnails
+    void setOnClose(std::function<void()> cb) { onClose_ = std::move(cb); }
+
 protected:
     void showEvent(QShowEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void autoInit();
@@ -156,6 +161,7 @@ private:
 
     std::vector<LayerEntry>   layers_;
     std::string               currentLayer_;
+    std::function<void()>     onClose_;
 
     int           nextRenderIdx_ = 0;
     bool          rendering_     = false;
