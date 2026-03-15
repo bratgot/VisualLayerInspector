@@ -355,7 +355,7 @@ public:
 
         Divider(f, "categories");
 
-        Bool_knob(f, &showDefault_, "show_default", "Default");
+        Bool_knob(f, &showDefault_, "show_default", "RGBA");
         SetFlags(f, Knob::STARTLINE);
         Bool_knob(f, &showLighting_, "show_lighting", "Lighting");
         ClearFlags(f, Knob::STARTLINE);
