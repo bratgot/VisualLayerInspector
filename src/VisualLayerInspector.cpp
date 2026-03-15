@@ -506,8 +506,8 @@ private:
                     sr.valid = true;
                     for (auto& part : result.parts) {
                         for (auto& layer : part.layers) {
-                            if (layer.name.empty()) continue;  // skip default/root layer
-                            sr.layerNames.push_back(layer.name);
+                            std::string name = layer.name.empty() ? "rgba" : layer.name;
+                            sr.layerNames.push_back(name);
                             sr.channelCounts.push_back(static_cast<int>(layer.channels.size()));
                         }
                     }

@@ -689,9 +689,14 @@ void InspectorDialog::onSortChanged(int comboIndex)
     sortLayers();
     reorderGridFast();
 
-    // Resume rendering unfinished thumbnails
     if (wasRendering) {
-        beginRendering();
+        // Resume without resetting — thumbnails already rendered stay
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        scheduleNextRender();
     }
 }
 
@@ -710,7 +715,12 @@ void InspectorDialog::onReverseToggle()
     reorderGridFast();
 
     if (wasRendering) {
-        beginRendering();
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        scheduleNextRender();
     }
 }
 
@@ -718,12 +728,32 @@ void InspectorDialog::onCategoryToggle()
 {
     if (!scanned_) return;
 
+    bool wasRendering = rendering_;
     if (rendering_) stopRendering();
 
     buildGrid();
 
-    // Start rendering for any visible layers missing thumbnails
-    beginRendering();
+    // Check if any visible layers still need thumbnails
+    bool needsRender = false;
+    for (auto& le : layers_) {
+        if (le.button && le.thumbnail.isNull()) {
+            needsRender = true;
+            break;
+        }
+    }
+    if (needsRender) {
+        // Resume from current position, not from zero
+        rendering_ = true;
+        stopBtn_->setText("Stop");
+        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
+        stopBtn_->setEnabled(true);
+        regenBtn_->setEnabled(false);
+        scheduleNextRender();
+    } else if (!wasRendering) {
+        // All thumbnails exist, update status
+        int total = static_cast<int>(layers_.size());
+        statusLabel_->setText(QString("Done \xe2\x80\x94 %1 layers").arg(total));
+    }
 }
 
 void InspectorDialog::onCatAll()
