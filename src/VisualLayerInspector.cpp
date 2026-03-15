@@ -114,14 +114,21 @@ struct LayerInfo {
 static std::vector<LayerInfo> collectLayers(const ChannelSet& channels)
 {
     std::map<std::string, int> layerMap;
+    bool hasDefaultChannels = false;
     foreach (z, channels) {
         const std::string name = getName(z);
         const size_t dot = name.find('.');
         if (dot != std::string::npos)
             layerMap[name.substr(0, dot)]++;
+        else {
+            // Default channels (red, green, blue, alpha) have no dot
+            hasDefaultChannels = true;
+        }
     }
     std::vector<LayerInfo> result;
-    result.reserve(layerMap.size());
+    if (hasDefaultChannels)
+        result.push_back({"rgba", 4});
+    result.reserve(result.size() + layerMap.size());
     for (const auto& kv : layerMap)
         result.push_back({kv.first, kv.second});
     return result;
@@ -139,6 +146,23 @@ static LayerChannels resolveLayerChannels(const std::string& layer,
                                           const ChannelSet& allChannels)
 {
     LayerChannels lc;
+
+    // Special case: rgba = default channels without layer prefix
+    if (layer == "rgba") {
+        foreach (z, allChannels) {
+            std::string name = getName(z);
+            if (name.find('.') != std::string::npos) continue;
+            std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+            if      (name == "red"   || name == "r") lc.r = z;
+            else if (name == "green" || name == "g") lc.g = z;
+            else if (name == "blue"  || name == "b") lc.b = z;
+            else if (name == "alpha" || name == "a") lc.a = z;
+            lc.count++;
+        }
+        if (lc.count == 1) { lc.g = lc.r; lc.b = lc.r; }
+        return lc;
+    }
+
     std::vector<Channel> found;
 
     foreach (z, allChannels) {
@@ -337,8 +361,10 @@ public:
 
         Divider(f, "categories");
 
-        Bool_knob(f, &showLighting_, "show_lighting", "Lighting");
+        Bool_knob(f, &showDefault_, "show_default", "Default");
         SetFlags(f, Knob::STARTLINE);
+        Bool_knob(f, &showLighting_, "show_lighting", "Lighting");
+        ClearFlags(f, Knob::STARTLINE);
         Bool_knob(f, &showUtility_, "show_utility", "Utility");
         ClearFlags(f, Knob::STARTLINE);
         Bool_knob(f, &showData_, "show_data", "Data");
@@ -427,6 +453,7 @@ private:
     int  proxyIdx_        = 0;   // 0=Full, 1=2x, 2=4x, 3=8x
     int  sortIdx_         = 1;   // 1=Type AOV
     int  thumbSize_       = 200;
+    bool showDefault_     = true;
     bool showLighting_    = true;
     bool showUtility_     = true;
     bool showData_        = true;
@@ -554,6 +581,9 @@ private:
             }
             pr.valid = true;
             pr.renderOne = self->makeRenderCallback(pi);
+            pr.layerNames.reserve(pi.layers.size());
+            for (const auto& li : pi.layers)
+                pr.layerNames.push_back(li.name);
             return pr;
         };
 
@@ -608,6 +638,7 @@ private:
         settings.proxyStep     = proxySteps[pi];
         settings.sortMode      = static_cast<SortMode>(si);
         settings.thumbSize     = std::max(80, std::min(thumbSize_, 400));
+        settings.showDefault     = showDefault_;
         settings.showLighting    = showLighting_;
         settings.showUtility     = showUtility_;
         settings.showData        = showData_;

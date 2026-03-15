@@ -62,6 +62,7 @@ using ScanCallback = std::function<ScanResult()>;
 // Called after the grid is already visible with placeholders
 struct PrepareResult {
     RenderOneCallback        renderOne;
+    std::vector<std::string> layerNames;  // Nuke's layer ordering — for index remapping
     bool                     valid = false;
     std::string              errorMsg;
 };
@@ -71,7 +72,7 @@ using PrepareCallback = std::function<PrepareResult()>;
 //  Layer categories
 // ============================================================================
 enum class LayerCategory : int {
-    Lighting = 0, Utility, Data, Cryptomatte, Custom
+    Default = 0, Lighting, Utility, Data, Cryptomatte, Custom
 };
 
 const char* layerCategoryName(LayerCategory cat);
@@ -105,6 +106,7 @@ struct InspectorSettings {
     int       proxyStep     = 1;
     SortMode  sortMode      = SortMode::TypeGroup;
     int       thumbSize     = 200;
+    bool      showDefault     = true;
     bool      showLighting    = true;
     bool      showUtility     = true;
     bool      showData        = true;
