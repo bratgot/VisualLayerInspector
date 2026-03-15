@@ -167,6 +167,7 @@ private:
     bool          rendering_     = false;
     bool          scanned_       = false;
     bool          showFired_     = false;
+    bool          initializing_  = false;
     QElapsedTimer perfTimer_;
     int           proxyStep_     = 1;
     int           thumbWidth_    = 200;
