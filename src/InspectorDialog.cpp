@@ -698,22 +698,8 @@ void InspectorDialog::onSortChanged(int comboIndex)
     if (newMode == sortMode_) return;
     sortMode_ = newMode;
     if (!scanned_) return;
-
-    bool wasRendering = rendering_;
-    if (rendering_) stopRendering();
-
     sortLayers();
-    reorderGridFast();
-
-    if (wasRendering) {
-        // Resume without resetting — thumbnails already rendered stay
-        rendering_ = true;
-        stopBtn_->setText("Stop");
-        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
-        stopBtn_->setEnabled(true);
-        regenBtn_->setEnabled(false);
-        scheduleNextRender();
-    }
+    buildGrid();    // reuses existing thumbnails from le.thumbnail
 }
 
 void InspectorDialog::onReverseToggle()
@@ -723,53 +709,14 @@ void InspectorDialog::onReverseToggle()
     reverseBtn_->setToolTip(sortReversed_ ? "Sort: descending (click to reverse)"
                                           : "Sort: ascending (click to reverse)");
     if (!scanned_) return;
-
-    bool wasRendering = rendering_;
-    if (rendering_) stopRendering();
-
     sortLayers();
-    reorderGridFast();
-
-    if (wasRendering) {
-        rendering_ = true;
-        stopBtn_->setText("Stop");
-        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
-        stopBtn_->setEnabled(true);
-        regenBtn_->setEnabled(false);
-        scheduleNextRender();
-    }
+    buildGrid();    // reuses existing thumbnails from le.thumbnail
 }
 
 void InspectorDialog::onCategoryToggle()
 {
     if (!scanned_) return;
-
-    bool wasRendering = rendering_;
-    if (rendering_) stopRendering();
-
-    buildGrid();
-
-    // Check if any visible layers still need thumbnails
-    bool needsRender = false;
-    for (auto& le : layers_) {
-        if (le.button && le.thumbnail.isNull() && le.prepareIndex >= 0) {
-            needsRender = true;
-            break;
-        }
-    }
-    if (needsRender) {
-        // Resume from current position, not from zero
-        rendering_ = true;
-        stopBtn_->setText("Stop");
-        stopBtn_->setStyleSheet("font-weight: bold; background-color: #554433;");
-        stopBtn_->setEnabled(true);
-        regenBtn_->setEnabled(false);
-        scheduleNextRender();
-    } else if (!wasRendering) {
-        // All thumbnails exist, update status
-        int total = static_cast<int>(layers_.size());
-        statusLabel_->setText(QString("Done \xe2\x80\x94 %1 layers").arg(total));
-    }
+    buildGrid();    // reuses existing thumbnails from le.thumbnail
 }
 
 void InspectorDialog::onCatAll()
@@ -884,74 +831,27 @@ void InspectorDialog::onThumbnailSizeDrag(int value)
     thumbHeight_ = static_cast<int>(value * kAspectRatio);
     sizeLabel_->setText(QString::number(value) + "px");
     if (!scanned_) return;
-
-    int newCols = computeColumns();
-    if (newCols != lastColumnCount_) {
-        reflowGridFast();
+    // Geometry only — just resize buttons, no grid rebuild
+    const int btnWidth  = thumbWidth_ + kButtonPadding;
+    const int btnHeight = thumbHeight_ + 40;
+    for (auto& le : layers_) {
+        if (le.button) le.button->setFixedSize(btnWidth, btnHeight);
     }
-    resizeButtonsInPlace();
 }
 
 void InspectorDialog::resizeButtonsInPlace()
 {
+    // Used by other paths if needed
     const int btnWidth  = thumbWidth_ + kButtonPadding;
     const int btnHeight = thumbHeight_ + 40;
-
-    // --- v2.0.0: geometry only during drag — pixmaps rebuild on release ---
-    QWidget* container = scrollArea_->widget();
-    if (container) container->setUpdatesEnabled(false);
-
     for (auto& le : layers_) {
-        if (!le.button) continue;
-        le.button->setFixedSize(btnWidth, btnHeight);
+        if (le.button) le.button->setFixedSize(btnWidth, btnHeight);
     }
-
-    if (container) container->setUpdatesEnabled(true);
 }
 
 void InspectorDialog::reflowGridFast()
 {
-    const int cols = computeColumns();
-    lastColumnCount_ = cols;
-
-    const std::string textFilter = filterEdit_
-        ? toLower(filterEdit_->text().toStdString()) : std::string();
-
-    // Detach buttons
-    for (auto& le : layers_) {
-        if (le.button) le.button->setParent(nullptr);
-    }
-    for (auto* h : groupHeaders_) { h->setParent(nullptr); delete h; }
-    groupHeaders_.clear();
-
-    // Fresh container
-    auto* newContainer = new QWidget;
-    newContainer->setUpdatesEnabled(false);
-    grid_ = new QGridLayout(newContainer);
-    grid_->setSpacing(6);
-    scrollArea_->setWidget(newContainer);
-    container_ = newContainer;
-
-    int row = 0;
-    int col = 0;
-    for (auto& le : layers_) {
-        if (!le.button) continue;
-        // Compute visibility from data, not widget state
-        bool catVisible = true;
-        auto it = categoryChecks_.find(le.category);
-        if (it != categoryChecks_.end())
-            catVisible = it->second->isChecked();
-        bool textVisible = textFilter.empty()
-            || (toLower(le.name).find(textFilter) != std::string::npos);
-        if (!catVisible || !textVisible) continue;
-
-        le.button->setVisible(true);
-        grid_->addWidget(le.button, row, col);
-        col++;
-        if (col >= cols) { row++; col = 0; }
-    }
-
-    newContainer->setUpdatesEnabled(true);
+    // No-op during drag — buildGrid on release handles everything
 }
 
 void InspectorDialog::onThumbnailSizeRelease()
